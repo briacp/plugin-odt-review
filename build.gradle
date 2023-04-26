@@ -1,0 +1,56 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+    id 'checkstyle'
+    id 'distribution'
+    id 'nebula.release' version '17.2.1'
+    id 'org.omegat.gradle'  version '1.4.2'
+    id 'com.diffplug.spotless' version '6.18.0'
+}
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+omegat {
+    version = "5.7.1"
+    pluginClass = "net.briac.omegat.ODTReviewPlugin"
+}
+
+dependencies {
+    packIntoJar  group: 'org.slf4j', name: 'slf4j-api', version: '1.7.21'
+
+    implementation group: 'commons-io', name: 'commons-io', version: '2.5'
+    implementation group: 'commons-lang', name: 'commons-lang', version: '2.6'
+    implementation group: 'org.omegat', name: 'lib-mnemonics', version: '1.0'
+    implementation group: 'org.slf4j', name: 'slf4j-nop', version: '1.7.21'
+    // The ODF Simple API is gone in version > 0.9.0, after that we'll have to
+    // use the 'odfdom-java' package
+    implementation group: 'org.odftoolkit', name: 'simple-odf', version: '0.9.0'
+    // just for test
+    implementation group: 'com.devskiller', name: 'jfairy', version: '0.6.5'
+
+    testImplementation group: 'junit', name: 'junit', version: '4.12'
+    testImplementation group: 'xmlunit', name: 'xmlunit', version: '1.6'
+}
+
+checkstyle {
+    ignoreFailures = true
+    toolVersion = '7.1'
+}
+
+distributions {
+    main {
+        contents {
+            from(jar)
+            from('README.md', 'COPYING', 'CHANGELOG.md')
+        }
+    }
+}
+
+spotless {
+    java {
+        targetExclude 'src/gen/**'
+        eclipse().configFile 'config/eclipse/eclipse-formatting.xml'
+        removeUnusedImports()
+    }
+}
