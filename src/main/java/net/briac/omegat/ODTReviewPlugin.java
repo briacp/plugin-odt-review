@@ -23,14 +23,17 @@ package net.briac.omegat;
 import static org.omegat.core.Core.getMainWindow;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
+import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -54,11 +57,15 @@ import org.omegat.core.Core;
 import org.omegat.core.CoreEvents;
 import org.omegat.core.data.IProject;
 import org.omegat.core.data.IProject.FileInfo;
+import org.omegat.core.data.PrepareTMXEntry;
 import org.omegat.core.data.ProjectProperties;
 import org.omegat.core.data.SourceTextEntry;
+import org.omegat.core.data.TMXEntry;
 import org.omegat.core.events.IApplicationEventListener;
+import org.omegat.gui.editor.IEditor;
 import org.omegat.gui.main.IMainMenu;
 import org.omegat.util.Log;
+import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
 
 public class ODTReviewPlugin {
@@ -68,12 +75,12 @@ public class ODTReviewPlugin {
     private static final int COL_INDEX = 0;
     private static final int COL_SOURCE = 1;
     private static final int COL_TARGET = 2;
-    private static final int COL_COMMENT = 3;
+    private static final int COL_NOTE = 3;
 
     private static final int SIZE_COL_INDEX = 15;
     private static final int SIZE_COL_SOURCE = 90;
     private static final int SIZE_COL_TARGET = 90;
-    private static final int SIZE_COL_COMMENT = 65;
+    private static final int SIZE_COL_NOTE = 65;
 
     private static final String HEADER_TABLE = "_header";
     private static final OdfName PROTECTED_CELL = OdfName.newName(OdfDocumentNamespace.TABLE, "protected");
@@ -91,6 +98,7 @@ public class ODTReviewPlugin {
     private static JMenuItem exportODTReview;
 
     private IProject project;
+    private List<Integer> changedEntries = new ArrayList<>();
 
     public ODTReviewPlugin(IProject project) {
         this.project = project;
@@ -100,8 +108,6 @@ public class ODTReviewPlugin {
      * Plugin loader.
      */
     public static void loadPlugins() {
-        ODTReviewPlugin.log(Level.INFO, "Loading ODTReviewPlugin");
-
         CoreEvents.registerProjectChangeListener(
                 e -> onProjectStatusChanged(Core.getProject().isProjectLoaded()));
 
@@ -113,30 +119,48 @@ public class ODTReviewPlugin {
 
                 int startMenuIndex = projectMenu.getItemCount() - 6;
 
-                importODTReview = new JMenuItem();
-                Mnemonics.setLocalizedText(importODTReview, res.getString("odt.menu.import"));
-                importODTReview.addActionListener(e -> projectImportODTReview());
-
-                projectMenu.add(new JPopupMenu.Separator(), startMenuIndex++);
-                projectMenu.add(importODTReview, startMenuIndex++);
-
                 exportODTReview = new JMenuItem();
                 Mnemonics.setLocalizedText(exportODTReview, res.getString("odt.menu.export"));
                 exportODTReview.addActionListener(e -> projectExportODTReview());
-                projectMenu.add(exportODTReview, startMenuIndex);
+                projectMenu.add(exportODTReview, startMenuIndex++);
+
+                importODTReview = new JMenuItem();
+                Mnemonics.setLocalizedText(importODTReview, res.getString("odt.menu.import"));
+                importODTReview.addActionListener(e -> projectImportODTReview());
+                projectMenu.add(importODTReview, startMenuIndex++);
+
+                projectMenu.add(new JPopupMenu.Separator(), startMenuIndex);
 
                 onProjectStatusChanged(false);
             }
 
             private void projectExportODTReview() {
-                log(Level.INFO, "TODO - Display GUI for selecting files to export and output filename");
-                log(Level.INFO, "odtr: " + new ODTReviewPlugin(Core.getProject()));
-                new ODTReviewPlugin(Core.getProject()).exportODT(new File("review.odt"));
+                // Deactivate current segment
+                UIThreadsUtil.mustBeSwingThread();
+                Core.getEditor().commitAndDeactivate();
+
+                // TODO - Display GUI for selecting files to export and output
+                // filename
+                IProject p = Core.getProject();
+                new ODTReviewPlugin(p)
+                        .exportODT(new File(p.getProjectProperties().getProjectRootDir(), "review.odt"));
             }
 
             private void projectImportODTReview() {
-                log(Level.INFO, "TODO - GUI for importing reviewed ODT");
-                new ODTReviewPlugin(Core.getProject()).importODT(new File("review.odt"));
+                // Deactivate current segment
+                UIThreadsUtil.mustBeSwingThread();
+                IEditor editor = Core.getEditor();
+                editor.commitAndDeactivate();
+
+                // TODO - GUI for importing reviewed ODT
+                IProject p = Core.getProject();
+
+                ODTReviewPlugin odt = new ODTReviewPlugin(p);
+                odt.importODT(new File(p.getProjectProperties().getProjectRootDir(), "review.odt"));
+
+                if (!odt.changedEntries.isEmpty()) {
+                    editor.refreshViewAfterFix(odt.changedEntries);
+                }
             }
 
             @Override
@@ -147,36 +171,13 @@ public class ODTReviewPlugin {
     }
 
     /**
-     * Export the segments in an ODT file, with the source, target and comments.
+     * Export the segments in an ODT file, with the source, target and notes.
      */
     public void exportODT(File output) {
         log(Level.INFO, res.getString("odt.file.saving"));
         try (TextDocument odt = TextDocument.newTextDocument()) {
 
-            // Setup header and footer
-            Header docHeader = odt.getHeader();
-            Table tableHeader = docHeader.addTable(2, 2);
-            tableHeader.setTableName(HEADER_TABLE);
-            tableHeader.getCellByPosition(0, 0).setStringValue(res.getString("table.header"));
-            Cell cellRight = tableHeader.getCellByPosition(1, 0);
-            cellRight.setStringValue(String.format(res.getString("table.header.project"),
-                    project.getProjectProperties().getProjectName()));
-            cellRight.setHorizontalAlignment(HorizontalAlignmentType.RIGHT);
-
-            // Switch page orientation
-            for (Iterator<StyleMasterPageElement> it = odt.getOfficeMasterStyles().getMasterPages(); it
-                    .hasNext();) {
-                StyleMasterPageElement page = it.next();
-                String pageLayoutName = page.getStylePageLayoutNameAttribute();
-                OdfStylePageLayout pageLayoutStyle = page.getAutomaticStyles().getPageLayout(pageLayoutName);
-                PageLayoutProperties pageLayoutProps = PageLayoutProperties
-                        .getOrCreatePageLayoutProperties(pageLayoutStyle);
-                double tmp = pageLayoutProps.getPageWidth();
-                pageLayoutProps.setPageWidth(pageLayoutProps.getPageHeight());
-                pageLayoutProps.setPageHeight(tmp);
-            }
-
-            odt.addParagraph(res.getString("doc.warning"));
+            setupDocument(odt);
 
             // For each selected project files, add the entries
             List<FileInfo> files = project.getProjectFiles();
@@ -195,28 +196,55 @@ public class ODTReviewPlugin {
                 Table table = createTable(odt, numberOfEntries, currentFile.filePath);
                 int rowIndex = 2;
                 for (SourceTextEntry ste : fileEntries) {
+                    TMXEntry en = project.getTranslationInfo(ste);
                     int entryNumber = ste.entryNum();
                     String sourceText = ste.getSrcText();
-                    String translation = project.getTranslationInfo(ste) != null
-                            ? project.getTranslationInfo(ste).translation
-                            : null;
+                    String translation = en != null ? en.translation : null;
                     if (translation != null && translation.isEmpty()) {
                         translation = res.getString("empty.translation");
                     }
-                    String comment = Optional.ofNullable(ste.getComment()).orElse("");
-                    addSegment(table, rowIndex++, entryNumber, sourceText, translation, comment);
+                    String note = en != null ? en.note : "";
+                    addSegment(table, rowIndex++, entryNumber, sourceText, translation, note);
                 }
             }
 
             odt.save(output);
             log(Level.INFO, String.format(res.getString("odt.file.saved"), output.getAbsolutePath()));
         } catch (Exception e) {
-            Log.logErrorRB(e, "Error exporting ODT file");
+            Log.logErrorRB(e, res.getString("odt.error.export"));
         }
     }
 
+    private void setupDocument(TextDocument odt) {
+        // Setup header and footer
+        Header docHeader = odt.getHeader();
+        Table tableHeader = docHeader.addTable(2, 2);
+        tableHeader.setTableName(HEADER_TABLE);
+        tableHeader.getCellByPosition(0, 0).setStringValue(res.getString("table.header"));
+        Cell cellRight = tableHeader.getCellByPosition(1, 0);
+        cellRight.setStringValue(String.format(res.getString("table.header.project"),
+                project.getProjectProperties().getProjectName()));
+        protectCell(cellRight);
+        cellRight.setHorizontalAlignment(HorizontalAlignmentType.RIGHT);
+
+        // Switch page orientation
+        for (Iterator<StyleMasterPageElement> it = odt.getOfficeMasterStyles().getMasterPages(); it
+                .hasNext();) {
+            StyleMasterPageElement page = it.next();
+            String pageLayoutName = page.getStylePageLayoutNameAttribute();
+            OdfStylePageLayout pageLayoutStyle = page.getAutomaticStyles().getPageLayout(pageLayoutName);
+            PageLayoutProperties pageLayoutProps = PageLayoutProperties
+                    .getOrCreatePageLayoutProperties(pageLayoutStyle);
+            double tmp = pageLayoutProps.getPageWidth();
+            pageLayoutProps.setPageWidth(pageLayoutProps.getPageHeight());
+            pageLayoutProps.setPageHeight(tmp);
+        }
+
+        odt.addParagraph(res.getString("doc.warning"));
+    }
+
     private void addSegment(Table table, int rowIndex, int entryNumber, String sourceText, String translation,
-            String comment) {
+            String note) {
         Cell cellId = table.getCellByPosition(COL_INDEX, rowIndex);
         cellId.setStringValue(Integer.toString(entryNumber));
         protectCell(cellId);
@@ -226,7 +254,7 @@ public class ODTReviewPlugin {
         protectCell(cellSource);
 
         table.getCellByPosition(COL_TARGET, rowIndex).setStringValue(translation);
-        table.getCellByPosition(COL_COMMENT, rowIndex).setStringValue(comment);
+        table.getCellByPosition(COL_NOTE, rowIndex).setStringValue(note);
     }
 
     private void protectCell(Cell cellSource) {
@@ -249,12 +277,12 @@ public class ODTReviewPlugin {
                 String.format(res.getString("table.header.source"), projectProperties.getSourceLanguage()));
         setHeaderCell(table, COL_TARGET, 1,
                 String.format(res.getString("table.header.target"), projectProperties.getTargetLanguage()));
-        setHeaderCell(table, COL_COMMENT, 1, res.getString("table.header.comment"));
+        setHeaderCell(table, COL_NOTE, 1, res.getString("table.header.note"));
 
         table.getColumnByIndex(COL_INDEX).setWidth(SIZE_COL_INDEX);
         table.getColumnByIndex(COL_SOURCE).setWidth(SIZE_COL_SOURCE);
         table.getColumnByIndex(COL_TARGET).setWidth(SIZE_COL_TARGET);
-        table.getColumnByIndex(COL_COMMENT).setWidth(SIZE_COL_COMMENT);
+        table.getColumnByIndex(COL_NOTE).setWidth(SIZE_COL_NOTE);
 
         return table;
     }
@@ -272,32 +300,106 @@ public class ODTReviewPlugin {
     }
 
     /**
-     * Export the segments in an ODT file, with the source, target and comments.
+     * Export the segments in an ODT file, with the source, target and notes.
      */
     public void importODT(File input) {
         log(Level.INFO, String.format(res.getString("odt.file.importing"), input.getAbsolutePath()));
+
+        // Convert the project entries to a Map for quick access later on.
+        Map<Integer, SourceTextEntry> allEntries = project.getAllEntries().stream()
+                .collect(Collectors.toMap(SourceTextEntry::entryNum, Function.identity()));
+
         try (TextDocument odt = TextDocument.loadDocument(input)) {
+            boolean projectChecked = false;
+            for (Table table : odt.getTableList()) {
+                if (!table.getTableName().equals(HEADER_TABLE)) {
+                    continue;
+                }
+
+                String reviewProject = table.getCellByPosition(1, 0).getStringValue()
+                        .replace(res.getString("table.header.project").replace("%s", ""), "");
+                String projectName = project.getProjectProperties().getProjectName();
+
+                if (!projectName.equals(reviewProject)) {
+                    // TODO User alert in GUI
+                    log(Level.WARNING, String.format(res.getString("odt.warning.file.mismatch"),
+                            reviewProject, projectName));
+                    return;
+                }
+
+                projectChecked = true;
+            }
+
+            if (!projectChecked) {
+                log(Level.WARNING, res.getString("odt.warning.noHeader"));
+            }
+
             for (Table table : odt.getTableList()) {
                 if (table.getTableName().equals(HEADER_TABLE)) {
                     continue;
                 }
 
-                System.out.println("File => " + table.getTableName());
+                log(Level.FINEST, String.format("File %s", table.getTableName()));
                 int rowCount = table.getRowCount();
                 for (int rowIndex = 2; rowIndex < rowCount; rowIndex++) {
-                    System.out.println(
-                            "Id      :" + table.getCellByPosition(COL_INDEX, rowIndex).getStringValue());
-                    System.out.println(
-                            "Source  :" + table.getCellByPosition(COL_SOURCE, rowIndex).getStringValue());
-                    System.out.println(
-                            "Target  :" + table.getCellByPosition(COL_TARGET, rowIndex).getStringValue());
-                    System.out.println(
-                            "Comment :" + table.getCellByPosition(COL_COMMENT, rowIndex).getStringValue());
+                    int entryNum = Integer
+                            .parseInt(table.getCellByPosition(COL_INDEX, rowIndex).getStringValue());
+                    if (!allEntries.containsKey(entryNum)) {
+                        log(Level.FINE, String.format("Cannot find segment #%d in the project", entryNum));
+                        continue;
+                    }
+
+                    updateSegment(table, rowIndex, allEntries.get(entryNum));
+
                 }
             }
         } catch (Exception e) {
-            Log.logErrorRB(e, "Error importing ODT file");
+            Log.logErrorRB(e, res.getString("odt.error.import"));
         }
+    }
+
+    /**
+     * @see org.omegat.gui.editor.filter.ReplaceFilter.replaceAll()
+     */
+    private void updateSegment(Table table, int rowIndex, SourceTextEntry ste) {
+        String sourceText = table.getCellByPosition(COL_SOURCE, rowIndex).getStringValue();
+        String targetTranslation = table.getCellByPosition(COL_TARGET, rowIndex).getStringValue();
+        String note = table.getCellByPosition(COL_NOTE, rowIndex).getStringValue();
+
+        log(Level.FINEST, String.format("Id     : %d", ste.entryNum()));
+        log(Level.FINEST, String.format("Source : %s", sourceText));
+        log(Level.FINEST, String.format("Target : %s", targetTranslation));
+        log(Level.FINEST, String.format("Note   : %s", note));
+
+        // Translation has changed during the review
+        TMXEntry en = Core.getProject().getTranslationInfo(ste);
+        if (hasReviewChanges(en, sourceText, targetTranslation, note)) {
+            PrepareTMXEntry prepare = new PrepareTMXEntry(en);
+            if (!prepare.translation.equals(targetTranslation)) {
+                prepare.translation = targetTranslation;
+            }
+
+            if (!note.isEmpty()) {
+                String reviewerNote = String.format(res.getString("reviewer.note"), note);
+                prepare.note = prepare.note != null && !prepare.note.isEmpty()
+                        ? prepare.note + "\n---\n" + reviewerNote
+                        : reviewerNote;
+            }
+
+            Core.getProject().setTranslation(ste, prepare, en.defaultTranslation, null);
+            changedEntries.add(ste.entryNum());
+        }
+
+    }
+
+    /**
+     * For a given segmentNum, if the source text is the same (in case we tried
+     * to apply the odt to another project) and either the translation or the
+     * notes are different, we update the segment.
+     */
+    private boolean hasReviewChanges(TMXEntry en, String source, String translation, String note) {
+        return en != null && source.equals(en.source)
+                && (!translation.equals(en.translation) || !note.equals(en.note));
     }
 
     /** Plugin unloader. */
