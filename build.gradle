@@ -16,6 +16,10 @@ omegat {
     pluginClass = "net.briac.omegat.ODTReviewPlugin"
 }
 
+release {
+  defaultVersionStrategy = nebula.plugin.release.git.opinion.Strategies.SNAPSHOT
+}
+
 dependencies {
     packIntoJar  group: 'org.slf4j', name: 'slf4j-api', version: '1.7.21'
     // The ODF Simple API is gone in version > 0.9.0, after that we'll have to
