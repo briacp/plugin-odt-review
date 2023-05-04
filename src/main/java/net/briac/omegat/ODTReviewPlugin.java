@@ -37,22 +37,33 @@ import java.util.stream.Collectors;
 
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 
 import org.odftoolkit.odfdom.dom.OdfDocumentNamespace;
+import org.odftoolkit.odfdom.dom.element.draw.DrawGradientElement;
+import org.odftoolkit.odfdom.dom.element.style.StyleGraphicPropertiesElement;
 import org.odftoolkit.odfdom.dom.element.style.StyleMasterPageElement;
+import org.odftoolkit.odfdom.dom.element.style.StyleParagraphPropertiesElement;
+import org.odftoolkit.odfdom.dom.element.style.StyleTextPropertiesElement;
+import org.odftoolkit.odfdom.dom.style.OdfStyleFamily;
+import org.odftoolkit.odfdom.incubator.doc.office.OdfOfficeStyles;
+import org.odftoolkit.odfdom.incubator.doc.style.OdfStyle;
 import org.odftoolkit.odfdom.incubator.doc.style.OdfStylePageLayout;
 import org.odftoolkit.odfdom.pkg.OdfName;
 import org.odftoolkit.odfdom.type.Color;
 import org.odftoolkit.simple.TextDocument;
+import org.odftoolkit.simple.style.Border;
 import org.odftoolkit.simple.style.Font;
 import org.odftoolkit.simple.style.PageLayoutProperties;
 import org.odftoolkit.simple.style.StyleTypeDefinitions;
 import org.odftoolkit.simple.style.StyleTypeDefinitions.HorizontalAlignmentType;
+import org.odftoolkit.simple.style.StyleTypeDefinitions.SupportedLinearMeasure;
 import org.odftoolkit.simple.table.Cell;
 import org.odftoolkit.simple.table.CellRange;
 import org.odftoolkit.simple.table.Table;
 import org.odftoolkit.simple.text.Header;
+import org.odftoolkit.simple.text.Paragraph;
 import org.omegat.core.Core;
 import org.omegat.core.CoreEvents;
 import org.omegat.core.data.IProject;
@@ -69,6 +80,10 @@ import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
 
 public class ODTReviewPlugin {
+
+    private static final String STYLE_WARNING_PARA = "omt-review-warning";
+    private static final String STYLE_WARNING_PARA_TEXT = "omt-review-warning-text";
+    private static final String STYLE_WARNING_GRADIENT = "omt-review-warning-gradient";
 
     private static final int TABLE_COLUMNS_COUNT = 4;
 
@@ -210,16 +225,28 @@ public class ODTReviewPlugin {
 
             odt.save(output);
             log(Level.INFO, String.format(res.getString("odt.file.saved"), output.getAbsolutePath()));
+
+            JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
+                    String.format(res.getString("odt.file.saved"), output.getAbsolutePath()),
+                    res.getString("dialog.import.title"), JOptionPane.INFORMATION_MESSAGE);
+
         } catch (Exception e) {
             Log.logErrorRB(e, res.getString("odt.error.export"));
+
+            JOptionPane.showMessageDialog(JOptionPane.getRootFrame(), res.getString("odt.error.export"),
+                    res.getString("dialog.export.title"), JOptionPane.ERROR_MESSAGE);
+
         }
     }
 
     private void setupDocument(TextDocument odt) {
+        OdfOfficeStyles styles = odt.getOrCreateDocumentStyles();
+
         // Setup header and footer
         Header docHeader = odt.getHeader();
-        Table tableHeader = docHeader.addTable(2, 2);
+        Table tableHeader = docHeader.addTable(1, 2);
         tableHeader.setTableName(HEADER_TABLE);
+
         tableHeader.getCellByPosition(0, 0).setStringValue(res.getString("table.header"));
         Cell cellRight = tableHeader.getCellByPosition(1, 0);
         cellRight.setStringValue(String.format(res.getString("table.header.project"),
@@ -240,7 +267,37 @@ public class ODTReviewPlugin {
             pageLayoutProps.setPageHeight(tmp);
         }
 
-        odt.addParagraph(res.getString("doc.warning"));
+        // Warning text with style
+        OdfStyle warningStyle = styles.newStyle(STYLE_WARNING_PARA, OdfStyleFamily.Paragraph);
+
+        StyleParagraphPropertiesElement propPara = warningStyle.newStyleParagraphPropertiesElement();
+        propPara.setFoMarginBottomAttribute("0.55cm");
+        propPara.setFoPaddingAttribute("0.5cm");
+        propPara.setFoBorderAttribute("1.5pt solid #f10d0c");
+
+        DrawGradientElement styleGradient = styles.newDrawGradientElement(STYLE_WARNING_GRADIENT);
+        styleGradient.setDrawNameAttribute(STYLE_WARNING_GRADIENT);
+        styleGradient.setDrawDisplayNameAttribute("OmT Warning Gradient");
+        styleGradient.setDrawStyleAttribute("linear");
+        styleGradient.setDrawStartColorAttribute("#ffd7d7");
+        styleGradient.setDrawEndColorAttribute("#f7d1d5");
+        styleGradient.setDrawStartIntensityAttribute("100%");
+        styleGradient.setDrawEndIntensityAttribute("100%");
+        styleGradient.setDrawAngleAttribute("330deg");
+        styleGradient.setDrawBorderAttribute("20%");
+
+        StyleGraphicPropertiesElement propGraphic = warningStyle.newStyleGraphicPropertiesElement();
+        propGraphic.setDrawFillAttribute("gradient");
+        propGraphic.setDrawGradientStepCountAttribute(0);
+        propGraphic.setDrawFillGradientNameAttribute(STYLE_WARNING_GRADIENT);
+
+        StyleTextPropertiesElement propText = warningStyle
+                .newStyleTextPropertiesElement(STYLE_WARNING_PARA_TEXT);
+        propText.setFoFontStyleAttribute("italic");
+        propText.setFoFontSizeAttribute("13pt");
+
+        Paragraph paraWarning = odt.addParagraph(res.getString("doc.warning"));
+        paraWarning.getOdfElement().setStyleName(STYLE_WARNING_PARA);
     }
 
     private void addSegment(Table table, int rowIndex, int entryNumber, String sourceText, String translation,
@@ -270,6 +327,9 @@ public class ODTReviewPlugin {
         protectCell(cellFilename);
         CellRange cellRange = table.getCellRangeByPosition(0, 0, TABLE_COLUMNS_COUNT - 1, 0);
         cellRange.merge();
+        // Fix missing right border after the merge
+        cellFilename.getStyleHandler().getTableCellPropertiesForWrite()
+                .setRightBorder(new Border(Color.BLACK, 0.05, SupportedLinearMeasure.PT));
 
         ProjectProperties projectProperties = project.getProjectProperties();
         setHeaderCell(table, COL_INDEX, 1, res.getString("table.header.id"));
@@ -353,8 +413,17 @@ public class ODTReviewPlugin {
 
                 }
             }
+
+            JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
+                    String.format(res.getString("dialog.import.successful"), input.getAbsolutePath()),
+                    res.getString("dialog.import.title"), JOptionPane.INFORMATION_MESSAGE);
+
         } catch (Exception e) {
             Log.logErrorRB(e, res.getString("odt.error.import"));
+
+            JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
+                    String.format(res.getString("dialog.import.error"), input.getAbsolutePath()),
+                    res.getString("dialog.import.title"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
