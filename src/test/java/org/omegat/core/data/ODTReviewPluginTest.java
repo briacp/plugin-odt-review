@@ -2,7 +2,7 @@
  OmegaT Plugin - ODT Review
 
  Copyright (C) 2008 Briac Pilpré - briacp@gmail.com
- Home page: https://github.com/briacp/plugin-omt-package
+ Home page: https://github.com/briacp/plugin-odt-review
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ import org.omegat.util.Language;
 
 import com.devskiller.jfairy.Fairy;
 
-import net.briac.omegat.ODTReviewPlugin;
+import net.briac.omegat.plugin.odtreview.ODTReviewPlugin;
 
 public class ODTReviewPluginTest {
 

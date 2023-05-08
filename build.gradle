@@ -13,7 +13,7 @@ targetCompatibility = JavaVersion.VERSION_1_8
 
 omegat {
     version = "5.7.1"
-    pluginClass = "net.briac.omegat.ODTReviewPlugin"
+    pluginClass = "net.briac.omegat.plugin.odtreview.ODTReviewPlugin"
 }
 
 release {
@@ -31,7 +31,7 @@ dependencies {
     implementation group: 'org.omegat', name: 'lib-mnemonics', version: '1.0'
     implementation group: 'org.slf4j', name: 'slf4j-nop', version: '1.7.21'
 
-    testImplementation group: 'com.devskiller', name: 'jfairy', version: '0.6.4'
+    implementation group: 'com.devskiller', name: 'jfairy', version: '0.6.4'
     testImplementation group: 'junit', name: 'junit', version: '4.12'
     testImplementation group: 'xmlunit', name: 'xmlunit', version: '1.6'
 

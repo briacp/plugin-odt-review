@@ -2,7 +2,7 @@
  OmegaT Plugin - ODT Review
 
  Copyright (C) 2023 Briac Pilpré - briacp@gmail.com
- Home page: https://github.com/briacp/plugin-omt-package
+ Home page: https://github.com/briacp/plugin-odt-review
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -18,10 +18,11 @@
  along with this program. If not, see <http://www.gnu.org/licenses/>.
  **************************************************************************/
 
-package net.briac.omegat;
+package net.briac.omegat.plugin.odtreview;
 
 import static org.omegat.core.Core.getMainWindow;
 
+import java.awt.Cursor;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -35,10 +36,13 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
+import javax.swing.JFileChooser;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 
 import org.odftoolkit.odfdom.dom.OdfDocumentNamespace;
 import org.odftoolkit.odfdom.dom.element.draw.DrawGradientElement;
@@ -75,15 +79,19 @@ import org.omegat.core.data.TMXEntry;
 import org.omegat.core.events.IApplicationEventListener;
 import org.omegat.gui.editor.IEditor;
 import org.omegat.gui.main.IMainMenu;
+import org.omegat.gui.main.IMainWindow;
 import org.omegat.util.Log;
 import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
 
+@SuppressWarnings({ "java:S2142", "java:S1192" })
 public class ODTReviewPlugin {
 
-    private static final String STYLE_WARNING_PARA = "omt-review-warning";
-    private static final String STYLE_WARNING_PARA_TEXT = "omt-review-warning-text";
-    private static final String STYLE_WARNING_GRADIENT = "omt-review-warning-gradient";
+    /** Id of the reviewer used when updating translations. */
+    private static final String ODT_REVIEWER_ID = "odt-review";
+    private static final String STYLE_WARNING_PARA = "odt-review-warning";
+    private static final String STYLE_WARNING_PARA_TEXT = "odt-review-warning-text";
+    private static final String STYLE_WARNING_GRADIENT = "odt-review-warning-gradient";
 
     private static final int TABLE_COLUMNS_COUNT = 4;
 
@@ -107,13 +115,17 @@ public class ODTReviewPlugin {
             Color.BLACK);
     private static final Logger LOGGER = Logger.getLogger(ODTReviewPlugin.class.getName());
 
-    protected static final ResourceBundle res = ResourceBundle.getBundle("odt-review", Locale.getDefault());
+    protected static final ResourceBundle res = ResourceBundle.getBundle(ODT_REVIEWER_ID,
+            Locale.getDefault());
+    protected static final String ODT_EXTENSION = ".odt";
 
     private static JMenuItem importODTReview;
     private static JMenuItem exportODTReview;
 
     private IProject project;
     private List<Integer> changedEntries = new ArrayList<>();
+    private int updatedTranslations = 0;
+    private int updatedComments = 0;
 
     public ODTReviewPlugin(IProject project) {
         this.project = project;
@@ -154,28 +166,84 @@ public class ODTReviewPlugin {
                 UIThreadsUtil.mustBeSwingThread();
                 Core.getEditor().commitAndDeactivate();
 
-                // TODO - Display GUI for selecting files to export and output
-                // filename
-                IProject p = Core.getProject();
-                new ODTReviewPlugin(p)
-                        .exportODT(new File(p.getProjectProperties().getProjectRootDir(), "review.odt"));
+                IProject currentProject = Core.getProject();
+                ProjectProperties props = currentProject.getProjectProperties();
+
+                // By default, the file is named
+                // "[project-name]_[source-lang]-[target-lang]_review.odt"
+                String defaultFilename = String.format("%s_%s-%s_review.%s", props.getProjectName(),
+                        props.getSourceLanguage(), props.getTargetLanguage(), ODT_EXTENSION);
+
+                File rootDir = props.getProjectRootDir();
+
+                // TODO - Add checkboxes to select the source files to export
+
+                ExportOdtFileChooser efc = new ExportOdtFileChooser(rootDir,
+                        res.getString("odt.chooser.export"));
+                efc.setSelectedFile(new File(defaultFilename));
+                int efcResult = efc.showOpenDialog(Core.getMainWindow().getApplicationFrame());
+                if (efcResult != JFileChooser.APPROVE_OPTION) {
+                    // user press 'Cancel' in project creation dialog
+                    return;
+                }
+
+                final File odtFile = efc.getSelectedFile();
+
+                new ODTReviewPlugin(currentProject).exportODT(odtFile);
             }
 
             private void projectImportODTReview() {
                 // Deactivate current segment
                 UIThreadsUtil.mustBeSwingThread();
-                IEditor editor = Core.getEditor();
-                editor.commitAndDeactivate();
 
-                // TODO - GUI for importing reviewed ODT
-                IProject p = Core.getProject();
+                IProject currentProject = Core.getProject();
+                ProjectProperties props = currentProject.getProjectProperties();
+                ImportOdtFileChooser ifc = new ImportOdtFileChooser(props.getProjectRootDir(),
+                        res.getString("odt.chooser.import"));
 
-                ODTReviewPlugin odt = new ODTReviewPlugin(p);
-                odt.importODT(new File(p.getProjectProperties().getProjectRootDir(), "review.odt"));
-
-                if (!odt.changedEntries.isEmpty()) {
-                    editor.refreshViewAfterFix(odt.changedEntries);
+                // ask for ODT file
+                int ifcResult = ifc.showOpenDialog(Core.getMainWindow().getApplicationFrame());
+                if (ifcResult != JFileChooser.APPROVE_OPTION) {
+                    // user press 'Cancel' in project creation dialog
+                    return;
                 }
+                final File odtFile = ifc.getSelectedFile();
+
+                new SwingWorker<Void, Void>() {
+                    @Override
+                    protected Void doInBackground() throws Exception {
+                        IMainWindow mainWindow = Core.getMainWindow();
+                        Cursor hourglassCursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR);
+                        Cursor oldCursor = mainWindow.getCursor();
+                        mainWindow.setCursor(hourglassCursor);
+                        showStatusMessage(res.getString("odt.status.importing"));
+
+                        IEditor editor = Core.getEditor();
+                        editor.commitAndDeactivate();
+
+                        ODTReviewPlugin odt = new ODTReviewPlugin(currentProject);
+                        odt.importODT(odtFile);
+                        if (!odt.changedEntries.isEmpty()) {
+                            editor.refreshViewAfterFix(odt.changedEntries);
+                        }
+
+                        showStatusMessage(res.getString("odt.status.imported"));
+                        mainWindow.setCursor(oldCursor);
+                        return null;
+                    }
+
+                    @Override
+                    protected void done() {
+                        try {
+
+                            get();
+                            SwingUtilities.invokeLater(Core.getEditor()::requestFocus);
+                        } catch (Exception ex) {
+                            Log.logErrorRB(ex, "PP_ERROR_UNABLE_TO_READ_PROJECT_FILE");
+                            getMainWindow().displayErrorRB(ex, "PP_ERROR_UNABLE_TO_READ_PROJECT_FILE");
+                        }
+                    }
+                }.execute();
             }
 
             @Override
@@ -185,24 +253,27 @@ public class ODTReviewPlugin {
         });
     }
 
+    public void exportODT(File output) {
+        exportODT(output, project.getProjectFiles());
+    }
+
     /**
      * Export the segments in an ODT file, with the source, target and notes.
      */
-    public void exportODT(File output) {
+    public void exportODT(File output, List<FileInfo> includedSourceFiles) {
         log(Level.INFO, res.getString("odt.file.saving"));
         try (TextDocument odt = TextDocument.newTextDocument()) {
 
             setupDocument(odt);
 
             // For each selected project files, add the entries
-            List<FileInfo> files = project.getProjectFiles();
-            for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
+            for (int fileIndex = 0; fileIndex < includedSourceFiles.size(); fileIndex++) {
                 if (fileIndex > 0) {
                     odt.addParagraph("");
                     odt.addPageBreak();
                 }
 
-                FileInfo currentFile = files.get(fileIndex);
+                FileInfo currentFile = includedSourceFiles.get(fileIndex);
 
                 List<SourceTextEntry> fileEntries = currentFile.entries;
                 int numberOfEntries = fileEntries.size();
@@ -371,19 +442,22 @@ public class ODTReviewPlugin {
 
         try (TextDocument odt = TextDocument.loadDocument(input)) {
             boolean projectChecked = false;
+            String reviewProject = "?";
+            String projectName = project.getProjectProperties().getProjectName();
+
             for (Table table : odt.getTableList()) {
                 if (!table.getTableName().equals(HEADER_TABLE)) {
                     continue;
                 }
 
-                String reviewProject = table.getCellByPosition(1, 0).getStringValue()
+                reviewProject = table.getCellByPosition(1, 0).getStringValue()
                         .replace(res.getString("table.header.project").replace("%s", ""), "");
-                String projectName = project.getProjectProperties().getProjectName();
 
                 if (!projectName.equals(reviewProject)) {
-                    // TODO User alert in GUI
-                    log(Level.WARNING, String.format(res.getString("odt.warning.file.mismatch"),
-                            reviewProject, projectName));
+                    JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
+                            String.format(res.getString("odt.warning.file.mismatch"), input.getAbsolutePath(),
+                                    reviewProject),
+                            res.getString("odt.error.import"), JOptionPane.WARNING_MESSAGE);
                     return;
                 }
 
@@ -392,6 +466,14 @@ public class ODTReviewPlugin {
 
             if (!projectChecked) {
                 log(Level.WARNING, res.getString("odt.warning.noHeader"));
+                int noHeader = JOptionPane.showConfirmDialog(JOptionPane.getRootFrame(),
+                        String.format(res.getString("odt.warning.noHeader"), reviewProject, projectName),
+                        res.getString("odt.error.import"), JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+
+                if (noHeader == JOptionPane.NO_OPTION) {
+                    return;
+                }
             }
 
             for (Table table : odt.getTableList()) {
@@ -415,7 +497,8 @@ public class ODTReviewPlugin {
             }
 
             JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
-                    String.format(res.getString("dialog.import.successful"), input.getAbsolutePath()),
+                    String.format(res.getString("dialog.import.successful"), input.getAbsolutePath(),
+                            updatedTranslations, updatedComments),
                     res.getString("dialog.import.title"), JOptionPane.INFORMATION_MESSAGE);
 
         } catch (Exception e) {
@@ -442,21 +525,30 @@ public class ODTReviewPlugin {
 
         // Translation has changed during the review
         TMXEntry en = Core.getProject().getTranslationInfo(ste);
+        boolean hasChanged = false;
         if (hasReviewChanges(en, sourceText, targetTranslation, note)) {
             PrepareTMXEntry prepare = new PrepareTMXEntry(en);
+
             if (!prepare.translation.equals(targetTranslation)) {
+                updatedTranslations++;
                 prepare.translation = targetTranslation;
+                prepare.changer = ODT_REVIEWER_ID;
+                hasChanged = true;
             }
 
             if (!note.isEmpty()) {
+                updatedComments++;
                 String reviewerNote = String.format(res.getString("reviewer.note"), note);
                 prepare.note = prepare.note != null && !prepare.note.isEmpty()
                         ? prepare.note + "\n---\n" + reviewerNote
                         : reviewerNote;
+                hasChanged = true;
             }
 
-            Core.getProject().setTranslation(ste, prepare, en.defaultTranslation, null);
-            changedEntries.add(ste.entryNum());
+            if (hasChanged) {
+                Core.getProject().setTranslation(ste, prepare, en.defaultTranslation, null);
+                changedEntries.add(ste.entryNum());
+            }
         }
 
     }
@@ -491,6 +583,11 @@ public class ODTReviewPlugin {
         rec.setParameters(parameters);
         rec.setLoggerName(LOGGER.getName());
         LOGGER.log(rec);
+    }
+
+    /** Hack to display a message other than a Bundle.properties string */
+    private static void showStatusMessage(String msg) {
+        Core.getMainWindow().showStatusMessageRB("app-version-template-pretty", msg, "");
     }
 
 }
