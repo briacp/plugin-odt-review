@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.function.Function;
 import java.util.logging.Level;
@@ -43,6 +44,9 @@ import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 
 import org.odftoolkit.odfdom.dom.OdfDocumentNamespace;
+import org.odftoolkit.odfdom.dom.attribute.fo.FoFontStyleAttribute;
+import org.odftoolkit.odfdom.dom.attribute.fo.FoFontWeightAttribute;
+import org.odftoolkit.odfdom.dom.attribute.meta.MetaValueTypeAttribute.Value;
 import org.odftoolkit.odfdom.dom.element.draw.DrawGradientElement;
 import org.odftoolkit.odfdom.dom.element.style.StyleGraphicPropertiesElement;
 import org.odftoolkit.odfdom.dom.element.style.StyleMasterPageElement;
@@ -55,14 +59,10 @@ import org.odftoolkit.odfdom.incubator.doc.style.OdfStylePageLayout;
 import org.odftoolkit.odfdom.pkg.OdfName;
 import org.odftoolkit.odfdom.type.Color;
 import org.odftoolkit.simple.TextDocument;
-import org.odftoolkit.simple.style.Border;
-import org.odftoolkit.simple.style.Font;
+import org.odftoolkit.simple.meta.Meta;
 import org.odftoolkit.simple.style.PageLayoutProperties;
-import org.odftoolkit.simple.style.StyleTypeDefinitions;
 import org.odftoolkit.simple.style.StyleTypeDefinitions.HorizontalAlignmentType;
-import org.odftoolkit.simple.style.StyleTypeDefinitions.SupportedLinearMeasure;
 import org.odftoolkit.simple.table.Cell;
-import org.odftoolkit.simple.table.CellRange;
 import org.odftoolkit.simple.table.Table;
 import org.odftoolkit.simple.text.Header;
 import org.odftoolkit.simple.text.Paragraph;
@@ -83,14 +83,20 @@ import org.omegat.util.Log;
 import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
 
-@SuppressWarnings({ "java:S2142", "java:S1192" })
+//@SuppressWarnings({ "java:S2142", "java:S1192" })
 public class ODTReviewPlugin {
 
     /** Id of the reviewer used when updating translations. */
     private static final String ODT_REVIEWER_ID = "odt-review";
+
     private static final String STYLE_WARNING_PARA = "odt-review-warning";
-    private static final String STYLE_WARNING_PARA_TEXT = "odt-review-warning-text";
     private static final String STYLE_WARNING_GRADIENT = "odt-review-warning-gradient";
+    private static final String STYLE_TEXT_SUFFIX = "-text";
+    private static final String STYLE_DEFAULT_LANG = "odt-review-default";
+    private static final String STYLE_SOURCE_LANG = "odt-review-source";
+    private static final String STYLE_TARGET_LANG = "odt-review-target";
+    private static final String STYLE_HEADER_TEXT = "odt-review-header";
+    private static final String STYLE_FILE = "odt-review-file";
 
     private static final int TABLE_COLUMNS_COUNT = 4;
 
@@ -104,19 +110,23 @@ public class ODTReviewPlugin {
     private static final int SIZE_COL_TARGET = 90;
     private static final int SIZE_COL_NOTE = 65;
 
-    private static final String HEADER_TABLE = "_header";
+    // Switch off cell protection for debugging
+    private static final boolean PROTECT_CELLS = true;
     private static final OdfName PROTECTED_CELL = OdfName.newName(OdfDocumentNamespace.TABLE, "protected");
     private static final String TRUE = Boolean.TRUE.toString();
 
-    private static final Font FONT_HEADER_1 = new Font("Arial", StyleTypeDefinitions.FontStyle.BOLD, 12,
-            Color.BLACK);
-    private static final Font FONT_HEADER_2 = new Font("Arial", StyleTypeDefinitions.FontStyle.BOLDITALIC, 14,
-            Color.BLACK);
     private static final Logger LOGGER = Logger.getLogger(ODTReviewPlugin.class.getName());
 
+    // This is the default because the resource bundles are not (yet) translated
+    private static final Locale DEFAULT_LOCALE = Locale.US;
     protected static final ResourceBundle res = ResourceBundle.getBundle(ODT_REVIEWER_ID,
             Locale.getDefault());
     protected static final String ODT_EXTENSION = ".odt";
+
+    // ODT Metadata
+    private static final String METADATA_PROJECT = "omt-projectName";
+    private static final String METADATA_TARGET = "omt-targetLanguage";
+    private static final String METADATA_SOURCE = "omt-sourceLanguage";
 
     private static JMenuItem importODTReview;
     private static JMenuItem exportODTReview;
@@ -250,32 +260,7 @@ public class ODTReviewPlugin {
             setupDocument(odt);
 
             // For each selected project files, add the entries
-            for (int fileIndex = 0; fileIndex < includedSourceFiles.size(); fileIndex++) {
-                if (fileIndex > 0) {
-                    odt.addParagraph("");
-                    odt.addPageBreak();
-                }
-
-                FileInfo currentFile = includedSourceFiles.get(fileIndex);
-
-                List<SourceTextEntry> fileEntries = currentFile.entries;
-                int numberOfEntries = fileEntries.size();
-                log(Level.INFO,
-                        String.format(res.getString("odt.file"), currentFile.filePath, numberOfEntries));
-                Table table = createTable(odt, numberOfEntries, currentFile.filePath);
-                int rowIndex = 2;
-                for (SourceTextEntry ste : fileEntries) {
-                    TMXEntry en = project.getTranslationInfo(ste);
-                    int entryNumber = ste.entryNum();
-                    String sourceText = ste.getSrcText();
-                    String translation = en != null ? en.translation : null;
-                    if (translation != null && translation.isEmpty()) {
-                        translation = res.getString("empty.translation");
-                    }
-                    String note = en != null ? en.note : "";
-                    addSegment(table, rowIndex++, entryNumber, sourceText, translation, note);
-                }
-            }
+            exportSourceFiles(includedSourceFiles, odt);
 
             odt.save(output);
             log(Level.INFO, String.format(res.getString("odt.file.saved"), output.getAbsolutePath()));
@@ -293,10 +278,44 @@ public class ODTReviewPlugin {
         }
     }
 
-    private void setupDocument(TextDocument odt) {
+    private void exportSourceFiles(List<FileInfo> includedSourceFiles, TextDocument odt) {
+        for (int fileIndex = 0; fileIndex < includedSourceFiles.size(); fileIndex++) {
+            if (fileIndex > 0) {
+                odt.addParagraph("");
+                odt.addPageBreak();
+            }
+
+            FileInfo currentFile = includedSourceFiles.get(fileIndex);
+
+            List<SourceTextEntry> fileEntries = currentFile.entries;
+            int numberOfEntries = fileEntries.size();
+            log(Level.INFO, String.format(res.getString("odt.file"), currentFile.filePath, numberOfEntries));
+            Table table = createTable(odt, fileIndex, numberOfEntries, currentFile.filePath);
+            int rowIndex = 1;
+            for (SourceTextEntry ste : fileEntries) {
+                TMXEntry en = project.getTranslationInfo(ste);
+                int entryNumber = ste.entryNum();
+                String sourceText = ste.getSrcText();
+                String translation = en != null ? en.translation : null;
+                if (translation != null && translation.isEmpty()) {
+                    translation = res.getString("empty.translation");
+                }
+                String note = en != null ? en.note : "";
+                addSegment(table, rowIndex++, entryNumber, sourceText, translation, note);
+            }
+        }
+    }
+
+    private void setupDocument(TextDocument odt) throws Exception {
         OdfOfficeStyles styles = odt.getOrCreateDocumentStyles();
 
-        // odt.getOfficeMetadata().
+        ProjectProperties props = project.getProjectProperties();
+        Meta metadata = new Meta(odt.getMetaDom());
+        metadata.setUserDefinedData(METADATA_SOURCE, Value.STRING.toString(),
+                props.getSourceLanguage().toString());
+        metadata.setUserDefinedData(METADATA_TARGET, Value.STRING.toString(),
+                props.getTargetLanguage().toString());
+        metadata.setUserDefinedData(METADATA_PROJECT, Value.STRING.toString(), props.getProjectName());
 
         // Simple ODF creates a useless empty paragraph by default
         Paragraph firstPara = odt.getParagraphByIndex(0, false);
@@ -307,15 +326,16 @@ public class ODTReviewPlugin {
         // Setup header and footer
         Header docHeader = odt.getHeader();
         Table tableHeader = docHeader.addTable(1, 2);
-        tableHeader.setTableName(HEADER_TABLE);
 
         Cell cellLeft = tableHeader.getCellByPosition(0, 0);
-        cellLeft.setStringValue(res.getString("table.header"));
+        Paragraph p = cellLeft.addParagraph(res.getString("table.header"));
+        setParaLanguage(p, STYLE_DEFAULT_LANG);
         protectCell(cellLeft);
 
         Cell cellRight = tableHeader.getCellByPosition(1, 0);
-        cellRight.setStringValue(String.format(res.getString("table.header.project"),
-                project.getProjectProperties().getProjectName()));
+        p = cellRight
+                .addParagraph(String.format(res.getString("table.header.project"), props.getProjectName()));
+        setParaLanguage(p, STYLE_DEFAULT_LANG);
         protectCell(cellRight);
         cellRight.setHorizontalAlignment(HorizontalAlignmentType.RIGHT);
 
@@ -331,6 +351,14 @@ public class ODTReviewPlugin {
             pageLayoutProps.setPageWidth(pageLayoutProps.getPageHeight());
             pageLayoutProps.setPageHeight(tmp);
         }
+
+        // Start file section
+        OdfStyle styleSectionFile = styles.newStyle(STYLE_FILE, OdfStyleFamily.Paragraph);
+        StyleTextPropertiesElement sectionText = styleSectionFile
+                .newStyleTextPropertiesElement(STYLE_FILE + STYLE_TEXT_SUFFIX);
+        sectionText.setFoFontStyleAttribute(FoFontStyleAttribute.Value.ITALIC.toString());
+        sectionText.setFoFontSizeAttribute("16pt");
+        setParaLanguage(sectionText, DEFAULT_LOCALE);
 
         // Warning text with style
         OdfStyle warningStyle = styles.newStyle(STYLE_WARNING_PARA, OdfStyleFamily.Paragraph);
@@ -357,14 +385,51 @@ public class ODTReviewPlugin {
         propGraphic.setDrawFillGradientNameAttribute(STYLE_WARNING_GRADIENT);
 
         StyleTextPropertiesElement propText = warningStyle
-                .newStyleTextPropertiesElement(STYLE_WARNING_PARA_TEXT);
+                .newStyleTextPropertiesElement(STYLE_WARNING_PARA + STYLE_TEXT_SUFFIX);
         propText.setFoFontStyleAttribute("italic");
         propText.setFoFontSizeAttribute("13pt");
+        setParaLanguage(propText, DEFAULT_LOCALE);
 
         Section sectionWarning = odt.appendSection(STYLE_WARNING_PARA);
         Paragraph paraWarning = sectionWarning.addParagraph(res.getString("doc.warning"));
         paraWarning.getOdfElement().setStyleName(STYLE_WARNING_PARA);
-        sectionWarning.setProtected(true);
+        if (PROTECT_CELLS) {
+            sectionWarning.setProtected(true);
+        }
+
+        OdfStyle style = styles.newStyle(STYLE_HEADER_TEXT, OdfStyleFamily.Paragraph);
+        StyleTextPropertiesElement stp = style
+                .newStyleTextPropertiesElement(STYLE_HEADER_TEXT + STYLE_TEXT_SUFFIX);
+        stp.setFoFontWeightAttribute(FoFontWeightAttribute.Value.BOLD.toString());
+        stp.setFoFontSizeAttribute("14pt");
+        setParaLanguage(stp, DEFAULT_LOCALE);
+
+        // Create styles with different languages setup
+        style = styles.newStyle(STYLE_DEFAULT_LANG, OdfStyleFamily.Paragraph);
+        setParaLanguage(style.newStyleTextPropertiesElement(STYLE_DEFAULT_LANG + STYLE_TEXT_SUFFIX),
+                DEFAULT_LOCALE);
+
+        style = styles.newStyle(STYLE_SOURCE_LANG, OdfStyleFamily.Paragraph);
+        setParaLanguage(style.newStyleTextPropertiesElement(STYLE_SOURCE_LANG + STYLE_TEXT_SUFFIX),
+                props.getSourceLanguage().getLocale());
+
+        style = styles.newStyle(STYLE_TARGET_LANG, OdfStyleFamily.Paragraph);
+        setParaLanguage(style.newStyleTextPropertiesElement(STYLE_TARGET_LANG + STYLE_TEXT_SUFFIX),
+                props.getTargetLanguage().getLocale());
+
+    }
+
+    private void setParaLanguage(Paragraph p, String lang) {
+        p.getOdfElement().setTextStyleNameAttribute(lang);
+    }
+
+    /**
+     * Set the correct language for the paragraph, to avoid tripping the
+     * spellchecker.
+     */
+    private void setParaLanguage(StyleTextPropertiesElement styleText, Locale locale) {
+        styleText.setFoLanguageAttribute(locale.getLanguage());
+        styleText.setFoCountryAttribute(locale.getCountry());
     }
 
     private void addSegment(Table table, int rowIndex, int entryNumber, String sourceText, String translation,
@@ -374,41 +439,46 @@ public class ODTReviewPlugin {
         protectCell(cellId);
 
         Cell cellSource = table.getCellByPosition(COL_SOURCE, rowIndex);
-        cellSource.setStringValue(sourceText);
         protectCell(cellSource);
+        Paragraph para = cellSource.addParagraph(sourceText);
+        setParaLanguage(para, STYLE_SOURCE_LANG);
 
-        table.getCellByPosition(COL_TARGET, rowIndex).setStringValue(translation);
-        table.getCellByPosition(COL_NOTE, rowIndex).setStringValue(note);
+        Cell cellTarget = table.getCellByPosition(COL_TARGET, rowIndex);
+        para = cellTarget.addParagraph(translation);
+        setParaLanguage(para, STYLE_TARGET_LANG);
+
+        Cell cellNote = table.getCellByPosition(COL_NOTE, rowIndex);
+        para = cellNote.addParagraph(note);
+        setParaLanguage(para, STYLE_DEFAULT_LANG);
     }
 
     private void protectCell(Cell cellSource) {
+        if (!PROTECT_CELLS) {
+            return;
+        }
+
         cellSource.getListContainerElement().setOdfAttributeValue(PROTECTED_CELL, TRUE);
     }
 
-    private Table createTable(TextDocument odt, int maxSegments, String sourceFile) {
-        Table table = odt.addTable(maxSegments + 2, TABLE_COLUMNS_COUNT);
+    private Table createTable(TextDocument odt, int index, int maxSegments, String sourceFile) {
+        Section fileSection = odt.appendSection("odt-review-file-" + index);
+        Paragraph paraFile = fileSection
+                .addParagraph(String.format(res.getString("table.header.file"), sourceFile));
+        paraFile.getOdfElement().setStyleName(STYLE_FILE);
+        if (PROTECT_CELLS) {
+            fileSection.setProtected(true);
+        }
 
+        Table table = odt.addTable(maxSegments + 1, TABLE_COLUMNS_COUNT);
         table.setTableName(sourceFile);
-        Cell cellFilename = setHeaderCell(table, 0, 0,
-                String.format(res.getString("table.header.file"), sourceFile), true);
-        protectCell(cellFilename);
-        CellRange cellRange = table.getCellRangeByPosition(0, 0, TABLE_COLUMNS_COUNT - 1, 0);
-        cellRange.merge();
-        // Fix missing right border after the merge
-        cellFilename.getStyleHandler().getTableCellPropertiesForWrite()
-                .setRightBorder(new Border(Color.BLACK, 0.05, SupportedLinearMeasure.PT));
 
         ProjectProperties projectProperties = project.getProjectProperties();
-        Cell headerCell = setHeaderCell(table, COL_INDEX, 1, res.getString("table.header.id"));
-        protectCell(headerCell);
-        headerCell = setHeaderCell(table, COL_SOURCE, 1,
+        setHeaderCell(table, COL_INDEX, 0, res.getString("table.header.id"));
+        setHeaderCell(table, COL_SOURCE, 0,
                 String.format(res.getString("table.header.source"), projectProperties.getSourceLanguage()));
-        protectCell(headerCell);
-        headerCell = setHeaderCell(table, COL_TARGET, 1,
+        setHeaderCell(table, COL_TARGET, 0,
                 String.format(res.getString("table.header.target"), projectProperties.getTargetLanguage()));
-        protectCell(headerCell);
-        headerCell = setHeaderCell(table, COL_NOTE, 1, res.getString("table.header.note"));
-        protectCell(headerCell);
+        setHeaderCell(table, COL_NOTE, 0, res.getString("table.header.note"));
 
         table.getColumnByIndex(COL_INDEX).setWidth(SIZE_COL_INDEX);
         table.getColumnByIndex(COL_SOURCE).setWidth(SIZE_COL_SOURCE);
@@ -419,14 +489,15 @@ public class ODTReviewPlugin {
     }
 
     private Cell setHeaderCell(Table table, int col, int row, String text) {
-        return setHeaderCell(table, col, row, text, false);
-    }
-
-    private Cell setHeaderCell(Table table, int col, int row, String text, boolean isItalic) {
         Cell cell = table.getCellByPosition(col, row);
         cell.setHorizontalAlignment(HorizontalAlignmentType.CENTER);
-        cell.setFont(isItalic ? FONT_HEADER_2 : FONT_HEADER_1);
-        cell.setDisplayText(text);
+        cell.setCellBackgroundColor(Color.SILVER);
+
+        Paragraph para = cell.addParagraph(text);
+        para.getOdfElement().setStyleName(STYLE_HEADER_TEXT);
+
+        protectCell(cell);
+
         return cell;
     }
 
@@ -441,51 +512,16 @@ public class ODTReviewPlugin {
                 .collect(Collectors.toMap(SourceTextEntry::entryNum, Function.identity()));
 
         try (TextDocument odt = TextDocument.loadDocument(input)) {
-            boolean odtWarning = false;
-            String reviewProject = "?";
-            String projectName = project.getProjectProperties().getProjectName();
+            boolean isChecked = checkReviewImport(odt);
 
-            Table headerTable = odt.getHeader().getTableByName(HEADER_TABLE);
-            if (headerTable == null) {
-                JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
-                        String.format(res.getString("odt.warning.noHeader"), input.getAbsolutePath(),
-                                reviewProject),
-                        res.getString("odt.error.import"), JOptionPane.WARNING_MESSAGE);
-                odtWarning = true;
-            } else {
-
-                reviewProject = headerTable.getCellByPosition(1, 0).getStringValue()
-                        .replace(res.getString("table.header.project").replace("%s", ""), "");
-
-                if (!projectName.equals(reviewProject)) {
-                    JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
-                            String.format(res.getString("odt.warning.fileMismatch"), input.getAbsolutePath(),
-                                    reviewProject),
-                            res.getString("odt.error.import"), JOptionPane.WARNING_MESSAGE);
-                    odtWarning = true;
-                }
-            }
-
-            if (odtWarning) {
-                log(Level.WARNING, res.getString("odt.warning.noHeader"));
-                int noHeader = JOptionPane.showConfirmDialog(JOptionPane.getRootFrame(),
-                        String.format(res.getString("odt.warning.noHeader"), reviewProject, projectName),
-                        res.getString("odt.error.import"), JOptionPane.YES_NO_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
-
-                if (noHeader == JOptionPane.NO_OPTION) {
-                    return;
-                }
+            if (!isChecked) {
+                return;
             }
 
             for (Table table : odt.getTableList()) {
-                if (table.getTableName().equals(HEADER_TABLE)) {
-                    continue;
-                }
-
                 log(Level.FINEST, String.format("File %s", table.getTableName()));
                 int rowCount = table.getRowCount();
-                for (int rowIndex = 2; rowIndex < rowCount; rowIndex++) {
+                for (int rowIndex = 1; rowIndex < rowCount; rowIndex++) {
                     int entryNum = Integer
                             .parseInt(table.getCellByPosition(COL_INDEX, rowIndex).getStringValue());
                     if (!allEntries.containsKey(entryNum)) {
@@ -506,10 +542,65 @@ public class ODTReviewPlugin {
         } catch (Exception e) {
             Log.logErrorRB(e, res.getString("odt.error.import"));
 
-            JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
-                    String.format(res.getString("dialog.import.error"), input.getAbsolutePath()),
-                    res.getString("dialog.import.title"), JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    JOptionPane.getRootFrame(), String.format(res.getString("dialog.import.error"),
+                            input.getAbsolutePath(), e.getMessage()),
+                    res.getString("odt.error.import"), JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Check that the imported document matches the current project (name,
+     * target and source languages).
+     */
+    private boolean checkReviewImport(TextDocument odt) throws Exception {
+        boolean odtWarning = false;
+        ProjectProperties props = project.getProjectProperties();
+        Meta metadata = new Meta(odt.getMetaDom());
+        String unknown = res.getString("odt.metadata.unknown");
+
+        String reviewSource = Optional.ofNullable(metadata.getUserDefinedDataValue(METADATA_SOURCE))
+                .orElse(unknown);
+        String reviewTarget = Optional.ofNullable(metadata.getUserDefinedDataValue(METADATA_TARGET))
+                .orElse(unknown);
+        String reviewName = Optional.ofNullable(metadata.getUserDefinedDataValue(METADATA_PROJECT))
+                .orElse(unknown);
+
+        String projectSource = props.getSourceLanguage().toString();
+        String projectTarget = props.getTargetLanguage().toString();
+        String projectName = props.getProjectName();
+
+        StringBuilder sbWarnings = new StringBuilder();
+        if (!projectName.equals(reviewName)) {
+            sbWarnings.append(
+                    String.format(res.getString("odt.warning.mismatch.project"), reviewName, projectName));
+            odtWarning = true;
+        }
+        if (!projectSource.equals(reviewSource)) {
+            sbWarnings.append(
+                    String.format(res.getString("odt.warning.mismatch.source"), reviewSource, projectSource));
+            odtWarning = true;
+        }
+        if (!projectTarget.equals(reviewTarget)) {
+            sbWarnings.append(
+                    String.format(res.getString("odt.warning.mismatch.target"), reviewTarget, projectTarget));
+            odtWarning = true;
+        }
+
+        if (odtWarning) {
+            log(Level.WARNING, String.format(res.getString("odt.warning.mismatch"), reviewName, reviewSource,
+                    reviewTarget));
+            int noHeader = JOptionPane.showConfirmDialog(JOptionPane.getRootFrame(),
+                    String.format(res.getString("odt.warning.mismatch.dialog"), sbWarnings.toString()),
+                    res.getString("odt.error.import"), JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+
+            if (noHeader == JOptionPane.NO_OPTION) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -520,10 +611,12 @@ public class ODTReviewPlugin {
         String targetTranslation = table.getCellByPosition(COL_TARGET, rowIndex).getStringValue();
         String note = table.getCellByPosition(COL_NOTE, rowIndex).getStringValue();
 
-        log(Level.FINEST, String.format("Id     : %d", ste.entryNum()));
-        log(Level.FINEST, String.format("Source : %s", sourceText));
-        log(Level.FINEST, String.format("Target : %s", targetTranslation));
-        log(Level.FINEST, String.format("Note   : %s", note));
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            log(Level.FINEST, String.format("Id     : %d", ste.entryNum()));
+            log(Level.FINEST, String.format("Source : %s", sourceText));
+            log(Level.FINEST, String.format("Target : %s", targetTranslation));
+            log(Level.FINEST, String.format("Note   : %s", note));
+        }
 
         // Translation has changed during the review
         TMXEntry en = Core.getProject().getTranslationInfo(ste);
