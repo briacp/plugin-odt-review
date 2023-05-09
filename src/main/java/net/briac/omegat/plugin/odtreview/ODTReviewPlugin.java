@@ -592,7 +592,7 @@ public class ODTReviewPlugin {
                     reviewTarget));
             int noHeader = JOptionPane.showConfirmDialog(JOptionPane.getRootFrame(),
                     String.format(res.getString("odt.warning.mismatch.dialog"), sbWarnings.toString()),
-                    res.getString("odt.error.import"), JOptionPane.YES_NO_OPTION,
+                    res.getString("odt.warning.import"), JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
 
             if (noHeader == JOptionPane.NO_OPTION) {
@@ -630,28 +630,9 @@ public class ODTReviewPlugin {
         if (hasReviewChanges(en, sourceText, targetTranslation, note)) {
             PrepareTMXEntry prepare = new PrepareTMXEntry(en);
 
-            if (!prepare.translation.equals(targetTranslation)) {
-                updatedTranslations++;
-                prepare.translation = targetTranslation;
-                prepare.changer = ODT_REVIEWER_ID;
-                hasChanged = true;
-            }
+            hasChanged = updateTranslation(targetTranslation, hasChanged, prepare);
 
-            if (!note.isEmpty()) {
-                String reviewerNote = String.format(res.getString("reviewer.note"), note);
-
-                // If the review file is imported several times, the review
-                // notes are duplicated. We should check that the review doesn't
-                // end with the content of the reviewer note.
-
-                if (prepare.note != null && !prepare.note.endsWith(note)) {
-                    prepare.note = prepare.note != null && !prepare.note.isEmpty()
-                            ? prepare.note + "\n---\n" + reviewerNote
-                            : reviewerNote;
-                    updatedComments++;
-                    hasChanged = true;
-                }
-            }
+            hasChanged = updateNote(note, hasChanged, prepare);
 
             if (hasChanged) {
                 Core.getProject().setTranslation(ste, prepare, en.defaultTranslation, null);
@@ -659,6 +640,35 @@ public class ODTReviewPlugin {
             }
         }
 
+    }
+
+    private boolean updateTranslation(String targetTranslation, boolean hasChanged, PrepareTMXEntry prepare) {
+        if (!prepare.translation.equals(targetTranslation)) {
+            updatedTranslations++;
+            prepare.translation = targetTranslation;
+            prepare.changer = ODT_REVIEWER_ID;
+            hasChanged = true;
+        }
+        return hasChanged;
+    }
+
+    private boolean updateNote(String note, boolean hasChanged, PrepareTMXEntry prepare) {
+        if (!note.isEmpty()) {
+            String reviewerNote = String.format(res.getString("reviewer.note"), note);
+
+            // If the review file is imported several times, the review
+            // notes are duplicated. We should check that the review doesn't
+            // end with the content of the reviewer note.
+
+            if (prepare.note != null && !prepare.note.endsWith(note)) {
+                prepare.note = prepare.note != null && !prepare.note.isEmpty()
+                        ? prepare.note + "\n---\n" + reviewerNote
+                        : reviewerNote;
+                updatedComments++;
+                hasChanged = true;
+            }
+        }
+        return hasChanged;
     }
 
     /**
