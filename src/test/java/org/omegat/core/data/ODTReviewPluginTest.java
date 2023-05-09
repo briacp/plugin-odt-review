@@ -70,6 +70,7 @@ public class ODTReviewPluginTest {
 
     private static IProject fakeProject() throws Exception {
         List<FileInfo> projectFiles = new ArrayList<>();
+        List<SourceTextEntry> allEntriesList = new ArrayList<>();
         Map<SourceTextEntry, TMXEntry> allEntries = new HashMap<>();
 
         ProjectProperties projectProperties = new ProjectProperties(
@@ -103,6 +104,7 @@ public class ODTReviewPluginTest {
                 pte.source = sourceText;
                 pte.translation = sourceTranslation;
                 allEntries.put(entry, new TMXEntry(pte, false, null));
+                allEntriesList.add(entry);
 
                 fileInfo.entries.add(entry);
             }
@@ -251,7 +253,7 @@ public class ODTReviewPluginTest {
 
             @Override
             public List<SourceTextEntry> getAllEntries() {
-                return null;
+                return allEntriesList;
             }
 
             @Override
