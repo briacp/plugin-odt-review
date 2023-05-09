@@ -5,7 +5,7 @@ plugins {
     id 'distribution'
     id 'nebula.release' version '17.2.1'
     id 'org.omegat.gradle'  version '1.4.2'
-    id 'com.diffplug.spotless' version '6.18.0'
+    id 'com.diffplug.spotless' version '6.13.0'
 }
 
 sourceCompatibility = JavaVersion.VERSION_1_8
