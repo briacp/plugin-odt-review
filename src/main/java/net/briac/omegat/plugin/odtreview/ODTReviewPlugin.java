@@ -41,8 +41,6 @@ import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
 
 import org.odftoolkit.odfdom.dom.OdfDocumentNamespace;
 import org.odftoolkit.odfdom.dom.element.draw.DrawGradientElement;
@@ -68,6 +66,7 @@ import org.odftoolkit.simple.table.CellRange;
 import org.odftoolkit.simple.table.Table;
 import org.odftoolkit.simple.text.Header;
 import org.odftoolkit.simple.text.Paragraph;
+import org.odftoolkit.simple.text.Section;
 import org.omegat.core.Core;
 import org.omegat.core.CoreEvents;
 import org.omegat.core.data.IProject;
@@ -171,7 +170,7 @@ public class ODTReviewPlugin {
 
                 // By default, the file is named
                 // "[project-name]_[source-lang]-[target-lang]_review.odt"
-                String defaultFilename = String.format("%s_%s-%s_review.%s", props.getProjectName(),
+                String defaultFilename = String.format("%s_%s-%s_review%s", props.getProjectName(),
                         props.getSourceLanguage(), props.getTargetLanguage(), ODT_EXTENSION);
 
                 File rootDir = props.getProjectRootDir();
@@ -209,41 +208,25 @@ public class ODTReviewPlugin {
                 }
                 final File odtFile = ifc.getSelectedFile();
 
-                new SwingWorker<Void, Void>() {
-                    @Override
-                    protected Void doInBackground() throws Exception {
-                        IMainWindow mainWindow = Core.getMainWindow();
-                        Cursor hourglassCursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR);
-                        Cursor oldCursor = mainWindow.getCursor();
-                        mainWindow.setCursor(hourglassCursor);
-                        showStatusMessage(res.getString("odt.status.importing"));
+                UIThreadsUtil.executeInSwingThread(() -> {
+                    IMainWindow mainWindow = Core.getMainWindow();
+                    Cursor hourglassCursor = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR);
+                    Cursor oldCursor = mainWindow.getCursor();
+                    mainWindow.setCursor(hourglassCursor);
+                    showStatusMessage(res.getString("odt.status.importing"));
 
-                        IEditor editor = Core.getEditor();
-                        editor.commitAndDeactivate();
+                    IEditor editor = Core.getEditor();
+                    editor.commitAndDeactivate();
 
-                        ODTReviewPlugin odt = new ODTReviewPlugin(currentProject);
-                        odt.importODT(odtFile);
-                        if (!odt.changedEntries.isEmpty()) {
-                            editor.refreshViewAfterFix(odt.changedEntries);
-                        }
-
-                        showStatusMessage(res.getString("odt.status.imported"));
-                        mainWindow.setCursor(oldCursor);
-                        return null;
+                    ODTReviewPlugin odt = new ODTReviewPlugin(currentProject);
+                    odt.importODT(odtFile);
+                    if (!odt.changedEntries.isEmpty()) {
+                        editor.refreshViewAfterFix(odt.changedEntries);
                     }
 
-                    @Override
-                    protected void done() {
-                        try {
-
-                            get();
-                            SwingUtilities.invokeLater(Core.getEditor()::requestFocus);
-                        } catch (Exception ex) {
-                            Log.logErrorRB(ex, "PP_ERROR_UNABLE_TO_READ_PROJECT_FILE");
-                            getMainWindow().displayErrorRB(ex, "PP_ERROR_UNABLE_TO_READ_PROJECT_FILE");
-                        }
-                    }
-                }.execute();
+                    showStatusMessage(res.getString("odt.status.imported"));
+                    mainWindow.setCursor(oldCursor);
+                });
             }
 
             @Override
@@ -313,12 +296,23 @@ public class ODTReviewPlugin {
     private void setupDocument(TextDocument odt) {
         OdfOfficeStyles styles = odt.getOrCreateDocumentStyles();
 
+        // odt.getOfficeMetadata().
+
+        // Simple ODF creates a useless empty paragraph by default
+        Paragraph firstPara = odt.getParagraphByIndex(0, false);
+        if (firstPara != null) {
+            odt.removeParagraph(firstPara);
+        }
+
         // Setup header and footer
         Header docHeader = odt.getHeader();
         Table tableHeader = docHeader.addTable(1, 2);
         tableHeader.setTableName(HEADER_TABLE);
 
-        tableHeader.getCellByPosition(0, 0).setStringValue(res.getString("table.header"));
+        Cell cellLeft = tableHeader.getCellByPosition(0, 0);
+        cellLeft.setStringValue(res.getString("table.header"));
+        protectCell(cellLeft);
+
         Cell cellRight = tableHeader.getCellByPosition(1, 0);
         cellRight.setStringValue(String.format(res.getString("table.header.project"),
                 project.getProjectProperties().getProjectName()));
@@ -367,8 +361,10 @@ public class ODTReviewPlugin {
         propText.setFoFontStyleAttribute("italic");
         propText.setFoFontSizeAttribute("13pt");
 
-        Paragraph paraWarning = odt.addParagraph(res.getString("doc.warning"));
+        Section sectionWarning = odt.appendSection(STYLE_WARNING_PARA);
+        Paragraph paraWarning = sectionWarning.addParagraph(res.getString("doc.warning"));
         paraWarning.getOdfElement().setStyleName(STYLE_WARNING_PARA);
+        sectionWarning.setProtected(true);
     }
 
     private void addSegment(Table table, int rowIndex, int entryNumber, String sourceText, String translation,
@@ -403,12 +399,16 @@ public class ODTReviewPlugin {
                 .setRightBorder(new Border(Color.BLACK, 0.05, SupportedLinearMeasure.PT));
 
         ProjectProperties projectProperties = project.getProjectProperties();
-        setHeaderCell(table, COL_INDEX, 1, res.getString("table.header.id"));
-        setHeaderCell(table, COL_SOURCE, 1,
+        Cell headerCell = setHeaderCell(table, COL_INDEX, 1, res.getString("table.header.id"));
+        protectCell(headerCell);
+        headerCell = setHeaderCell(table, COL_SOURCE, 1,
                 String.format(res.getString("table.header.source"), projectProperties.getSourceLanguage()));
-        setHeaderCell(table, COL_TARGET, 1,
+        protectCell(headerCell);
+        headerCell = setHeaderCell(table, COL_TARGET, 1,
                 String.format(res.getString("table.header.target"), projectProperties.getTargetLanguage()));
-        setHeaderCell(table, COL_NOTE, 1, res.getString("table.header.note"));
+        protectCell(headerCell);
+        headerCell = setHeaderCell(table, COL_NOTE, 1, res.getString("table.header.note"));
+        protectCell(headerCell);
 
         table.getColumnByIndex(COL_INDEX).setWidth(SIZE_COL_INDEX);
         table.getColumnByIndex(COL_SOURCE).setWidth(SIZE_COL_SOURCE);
@@ -441,30 +441,32 @@ public class ODTReviewPlugin {
                 .collect(Collectors.toMap(SourceTextEntry::entryNum, Function.identity()));
 
         try (TextDocument odt = TextDocument.loadDocument(input)) {
-            boolean projectChecked = false;
+            boolean odtWarning = false;
             String reviewProject = "?";
             String projectName = project.getProjectProperties().getProjectName();
 
-            for (Table table : odt.getTableList()) {
-                if (!table.getTableName().equals(HEADER_TABLE)) {
-                    continue;
-                }
+            Table headerTable = odt.getHeader().getTableByName(HEADER_TABLE);
+            if (headerTable == null) {
+                JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
+                        String.format(res.getString("odt.warning.noHeader"), input.getAbsolutePath(),
+                                reviewProject),
+                        res.getString("odt.error.import"), JOptionPane.WARNING_MESSAGE);
+                odtWarning = true;
+            } else {
 
-                reviewProject = table.getCellByPosition(1, 0).getStringValue()
+                reviewProject = headerTable.getCellByPosition(1, 0).getStringValue()
                         .replace(res.getString("table.header.project").replace("%s", ""), "");
 
                 if (!projectName.equals(reviewProject)) {
                     JOptionPane.showMessageDialog(JOptionPane.getRootFrame(),
-                            String.format(res.getString("odt.warning.file.mismatch"), input.getAbsolutePath(),
+                            String.format(res.getString("odt.warning.fileMismatch"), input.getAbsolutePath(),
                                     reviewProject),
                             res.getString("odt.error.import"), JOptionPane.WARNING_MESSAGE);
-                    return;
+                    odtWarning = true;
                 }
-
-                projectChecked = true;
             }
 
-            if (!projectChecked) {
+            if (odtWarning) {
                 log(Level.WARNING, res.getString("odt.warning.noHeader"));
                 int noHeader = JOptionPane.showConfirmDialog(JOptionPane.getRootFrame(),
                         String.format(res.getString("odt.warning.noHeader"), reviewProject, projectName),

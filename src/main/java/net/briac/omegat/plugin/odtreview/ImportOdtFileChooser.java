@@ -30,6 +30,8 @@ public final class ImportOdtFileChooser extends JFileChooser {
     public ImportOdtFileChooser(File baseDirectory, String dialogTitle) {
         super(baseDirectory);
 
+        setApproveButtonText(ODTReviewPlugin.res.getString("odt.chooser.button.import"));
+        setApproveButtonToolTipText(ODTReviewPlugin.res.getString("odt.chooser.button.import.tooltip"));
         setMultiSelectionEnabled(false);
         setFileHidingEnabled(true);
         setFileSelectionMode(FILES_ONLY);

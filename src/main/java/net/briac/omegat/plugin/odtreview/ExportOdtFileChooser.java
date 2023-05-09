@@ -30,6 +30,8 @@ public final class ExportOdtFileChooser extends JFileChooser {
     public ExportOdtFileChooser(File baseDirectory, String dialogTitle) {
         super(baseDirectory);
 
+        setApproveButtonText(ODTReviewPlugin.res.getString("odt.chooser.button.export"));
+        setApproveButtonToolTipText(ODTReviewPlugin.res.getString("odt.chooser.button.export.tooltip"));
         setMultiSelectionEnabled(false);
         setFileHidingEnabled(true);
         setFileSelectionMode(FILES_ONLY);
