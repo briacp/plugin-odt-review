@@ -618,6 +618,12 @@ public class ODTReviewPlugin {
             log(Level.FINEST, String.format("Note   : %s", note));
         }
 
+        // if this was an empty translation, don't update the translation with
+        // "<EMPTY>"!
+        if (targetTranslation.equals(res.getString("empty.translation"))) {
+            targetTranslation = "";
+        }
+
         // Translation has changed during the review
         TMXEntry en = Core.getProject().getTranslationInfo(ste);
         boolean hasChanged = false;
@@ -632,12 +638,19 @@ public class ODTReviewPlugin {
             }
 
             if (!note.isEmpty()) {
-                updatedComments++;
                 String reviewerNote = String.format(res.getString("reviewer.note"), note);
-                prepare.note = prepare.note != null && !prepare.note.isEmpty()
-                        ? prepare.note + "\n---\n" + reviewerNote
-                        : reviewerNote;
-                hasChanged = true;
+
+                // If the review file is imported several times, the review
+                // notes are duplicated. We should check that the review doesn't
+                // end with the content of the reviewer note.
+
+                if (prepare.note != null && !prepare.note.endsWith(note)) {
+                    prepare.note = prepare.note != null && !prepare.note.isEmpty()
+                            ? prepare.note + "\n---\n" + reviewerNote
+                            : reviewerNote;
+                    updatedComments++;
+                    hasChanged = true;
+                }
             }
 
             if (hasChanged) {
