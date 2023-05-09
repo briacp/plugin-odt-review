@@ -190,7 +190,7 @@ public class ODTReviewPlugin {
                 ExportOdtFileChooser efc = new ExportOdtFileChooser(rootDir,
                         res.getString("odt.chooser.export"));
                 efc.setSelectedFile(new File(defaultFilename));
-                int efcResult = efc.showOpenDialog(Core.getMainWindow().getApplicationFrame());
+                int efcResult = efc.showSaveDialog(Core.getMainWindow().getApplicationFrame());
                 if (efcResult != JFileChooser.APPROVE_OPTION) {
                     // user press 'Cancel' in project creation dialog
                     return;
