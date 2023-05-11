@@ -460,6 +460,7 @@ public class ODTReviewPlugin {
         cellSource.getListContainerElement().setOdfAttributeValue(PROTECTED_CELL, TRUE);
     }
 
+    /** Create a table for each source file. */
     private Table createTable(TextDocument odt, int index, int maxSegments, String sourceFile) {
         Section fileSection = odt.appendSection("odt-review-file-" + index);
         Paragraph paraFile = fileSection
@@ -604,6 +605,8 @@ public class ODTReviewPlugin {
     }
 
     /**
+     * Update a segment in the editor.
+     *
      * @see org.omegat.gui.editor.filter.ReplaceFilter.replaceAll()
      */
     private void updateSegment(Table table, int rowIndex, SourceTextEntry ste) {
@@ -642,6 +645,7 @@ public class ODTReviewPlugin {
 
     }
 
+    /** Check if a translation needs to be update, and updates it if so. */
     private boolean updateTranslation(String targetTranslation, boolean hasChanged, PrepareTMXEntry prepare) {
         if (!prepare.translation.equals(targetTranslation)) {
             updatedTranslations++;
@@ -652,6 +656,7 @@ public class ODTReviewPlugin {
         return hasChanged;
     }
 
+    /** Check if a note needs to be update, and updates it if so. */
     private boolean updateNote(String note, boolean hasChanged, PrepareTMXEntry prepare) {
         if (!note.isEmpty()) {
             String reviewerNote = String.format(res.getString("reviewer.note"), note);
