@@ -665,13 +665,15 @@ public class ODTReviewPlugin {
             // notes are duplicated. We should check that the review doesn't
             // end with the content of the reviewer note.
 
-            if (prepare.note != null && !prepare.note.endsWith(note)) {
-                prepare.note = prepare.note != null && !prepare.note.isEmpty()
-                        ? prepare.note + "\n---\n" + reviewerNote
-                        : reviewerNote;
-                updatedComments++;
-                hasChanged = true;
+            if (prepare.note != null && prepare.note.endsWith(note)) {
+                return hasChanged;
             }
+
+            prepare.note = prepare.note != null && !prepare.note.isEmpty()
+                    ? prepare.note + "\n---\n" + reviewerNote
+                    : reviewerNote;
+            updatedComments++;
+            hasChanged = true;
         }
         return hasChanged;
     }
