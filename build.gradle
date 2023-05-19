@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
+    id 'eclipse'
     id 'checkstyle'
     id 'distribution'
     id 'nebula.release' version '17.2.1'
