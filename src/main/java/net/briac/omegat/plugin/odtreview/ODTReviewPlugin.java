@@ -24,9 +24,12 @@ import static org.omegat.core.Core.getMainWindow;
 
 import java.awt.Cursor;
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +83,7 @@ import org.omegat.gui.editor.IEditor;
 import org.omegat.gui.main.IMainMenu;
 import org.omegat.gui.main.IMainWindow;
 import org.omegat.util.Log;
+import org.omegat.util.TMXProp;
 import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
 
@@ -109,6 +113,7 @@ public class ODTReviewPlugin {
     private static final int SIZE_COL_SOURCE = 90;
     private static final int SIZE_COL_TARGET = 90;
     private static final int SIZE_COL_NOTE = 65;
+    private static final int SIZE_COL_REVIEWER = 30;
 
     // Switch off cell protection for debugging
     private static final boolean PROTECT_CELLS = true;
@@ -123,10 +128,15 @@ public class ODTReviewPlugin {
             Locale.getDefault());
     protected static final String ODT_EXTENSION = ".odt";
 
+    private static final String REVIEWER_INFO = "omt-reviewer";
+
     // ODT Metadata
     private static final String METADATA_PROJECT = "omt-projectName";
     private static final String METADATA_TARGET = "omt-targetLanguage";
     private static final String METADATA_SOURCE = "omt-sourceLanguage";
+
+    // ProjectTMX.PROP_ORIGIN
+    private static final String REVIEWED_PROPERTIES = "origin";
 
     private static JMenuItem importODTReview;
     private static JMenuItem exportODTReview;
@@ -135,6 +145,8 @@ public class ODTReviewPlugin {
     private List<Integer> changedEntries = new ArrayList<>();
     private int updatedTranslations = 0;
     private int updatedComments = 0;
+    private String reviewDate;
+    private String reviewerName;
 
     public ODTReviewPlugin(IProject project) {
         this.project = project;
@@ -148,6 +160,7 @@ public class ODTReviewPlugin {
                 e -> onProjectStatusChanged(Core.getProject().isProjectLoaded()));
 
         CoreEvents.registerApplicationEventListener(new IApplicationEventListener() {
+
             @Override
             public void onApplicationStartup() {
                 IMainMenu menu = getMainWindow().getMainMenu();
@@ -417,6 +430,21 @@ public class ODTReviewPlugin {
         setParaLanguage(style.newStyleTextPropertiesElement(STYLE_TARGET_LANG + STYLE_TEXT_SUFFIX),
                 props.getTargetLanguage().getLocale());
 
+        // Reviewer info
+        Table tableReviewerInfo = odt.addTable(1, 2);
+        tableReviewerInfo.setTableName(REVIEWER_INFO);
+        tableReviewerInfo.getColumnByIndex(0).setWidth(SIZE_COL_REVIEWER);
+        cellLeft = tableReviewerInfo.getCellByPosition(0, 0);
+        p = cellLeft.addParagraph(res.getString("table.reviewer"));
+        setParaLanguage(p, STYLE_DEFAULT_LANG);
+        protectCell(cellLeft);
+
+        cellRight = tableReviewerInfo.getCellByPosition(1, 0);
+        p = cellRight.addParagraph("");
+        setParaLanguage(p, STYLE_DEFAULT_LANG);
+        cellRight.setHorizontalAlignment(HorizontalAlignmentType.LEFT);
+
+        odt.addParagraph("");
     }
 
     private void setParaLanguage(Paragraph p, String lang) {
@@ -508,6 +536,9 @@ public class ODTReviewPlugin {
     public void importODT(File input) {
         log(Level.INFO, String.format(res.getString("odt.file.importing"), input.getAbsolutePath()));
 
+        // Update the origin properties
+        reviewDate = new SimpleDateFormat("yyyy-MM-dd HH:mm").format(new Date(System.currentTimeMillis()));
+
         // Convert the project entries to a Map for quick access later on.
         Map<Integer, SourceTextEntry> allEntries = project.getAllEntries().stream()
                 .collect(Collectors.toMap(SourceTextEntry::entryNum, Function.identity()));
@@ -520,6 +551,10 @@ public class ODTReviewPlugin {
             }
 
             for (Table table : odt.getTableList()) {
+                if (REVIEWER_INFO.equals(table.getTableName())) {
+                    reviewerName = table.getCellByPosition(1, 0).getDisplayText();
+                    continue;
+                }
                 log(Level.FINEST, String.format("File %s", table.getTableName()));
                 int rowCount = table.getRowCount();
                 for (int rowIndex = 1; rowIndex < rowCount; rowIndex++) {
@@ -638,11 +673,35 @@ public class ODTReviewPlugin {
             hasChanged = updateNote(note, hasChanged, prepare);
 
             if (hasChanged) {
+                updateStatusProperties(prepare);
                 Core.getProject().setTranslation(ste, prepare, en.defaultTranslation, null);
                 changedEntries.add(ste.entryNum());
             }
         }
 
+    }
+
+    private void updateStatusProperties(PrepareTMXEntry prepare) {
+
+        String reviewPropValue = String.format(res.getString("odt.properties.reviewed"), reviewerName,
+                reviewDate);
+        TMXProp reviewProp = new TMXProp(REVIEWED_PROPERTIES, reviewPropValue);
+
+        List<TMXProp> otherProperties = prepare.otherProperties;
+        if (otherProperties == null) {
+            otherProperties = new ArrayList<>();
+            otherProperties.add(reviewProp);
+            prepare.otherProperties = otherProperties;
+            return;
+        }
+
+        ListIterator<TMXProp> iter = otherProperties.listIterator();
+        while (iter.hasNext()) {
+            if (REVIEWED_PROPERTIES.equals(iter.next().getType())) {
+                iter.remove();
+            }
+        }
+        otherProperties.add(reviewProp);
     }
 
     /** Check if a translation needs to be update, and updates it if so. */
