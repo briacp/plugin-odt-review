@@ -196,12 +196,13 @@ public class ODTReviewPlugin {
                 String defaultFilename = String.format("%s_%s-%s_review%s", props.getProjectName(),
                         props.getSourceLanguage(), props.getTargetLanguage(), ODT_EXTENSION);
 
+                ODTReviewPlugin odtPlugin = new ODTReviewPlugin(currentProject);
                 File rootDir = props.getProjectRootDir();
 
-                // TODO - Add checkboxes to select the source files to export
-
+                // The file chooser includes a separate panel to select source
+                // files to include for review
                 ExportOdtFileChooser efc = new ExportOdtFileChooser(rootDir,
-                        res.getString("odt.chooser.export"));
+                        odtPlugin.project.getSourceFilesOrder(), res.getString("odt.chooser.export"));
                 efc.setSelectedFile(new File(defaultFilename));
                 int efcResult = efc.showSaveDialog(Core.getMainWindow().getApplicationFrame());
                 if (efcResult != JFileChooser.APPROVE_OPTION) {
@@ -211,7 +212,7 @@ public class ODTReviewPlugin {
 
                 final File odtFile = efc.getSelectedFile();
 
-                new ODTReviewPlugin(currentProject).exportODT(odtFile);
+                odtPlugin.exportODT(odtFile, efc.getSelectedSourceFiles());
             }
 
             private void projectImportODTReview() {
@@ -259,21 +260,17 @@ public class ODTReviewPlugin {
         });
     }
 
-    public void exportODT(File output) {
-        exportODT(output, project.getProjectFiles());
-    }
-
     /**
      * Export the segments in an ODT file, with the source, target and notes.
      */
-    public void exportODT(File output, List<FileInfo> includedSourceFiles) {
+    public void exportODT(File output, List<String> selectedSourceFiles) {
         log(Level.INFO, res.getString("odt.file.saving"));
         try (TextDocument odt = TextDocument.newTextDocument()) {
 
             setupDocument(odt);
 
             // For each selected project files, add the entries
-            exportSourceFiles(includedSourceFiles, odt);
+            exportSourceFiles(selectedSourceFiles, odt);
 
             odt.save(output);
             log(Level.INFO, String.format(res.getString("odt.file.saved"), output.getAbsolutePath()));
@@ -291,14 +288,19 @@ public class ODTReviewPlugin {
         }
     }
 
-    private void exportSourceFiles(List<FileInfo> includedSourceFiles, TextDocument odt) {
-        for (int fileIndex = 0; fileIndex < includedSourceFiles.size(); fileIndex++) {
+    private void exportSourceFiles(List<String> filePaths, TextDocument odt) {
+
+        // Get the FileInfo from the selected files in the export dialog.
+        List<FileInfo> selectedFiles = project.getProjectFiles().stream()
+                .filter(f -> filePaths.contains(f.filePath)).collect(Collectors.toList());
+
+        for (int fileIndex = 0; fileIndex < selectedFiles.size(); fileIndex++) {
             if (fileIndex > 0) {
                 odt.addParagraph("");
                 odt.addPageBreak();
             }
 
-            FileInfo currentFile = includedSourceFiles.get(fileIndex);
+            FileInfo currentFile = selectedFiles.get(fileIndex);
 
             List<SourceTextEntry> fileEntries = currentFile.entries;
             int numberOfEntries = fileEntries.size();

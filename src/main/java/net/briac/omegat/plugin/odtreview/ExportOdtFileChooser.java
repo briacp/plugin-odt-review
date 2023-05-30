@@ -20,15 +20,29 @@
 
 package net.briac.omegat.plugin.odtreview;
 
-import javax.swing.*;
-import javax.swing.filechooser.FileFilter;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.io.File;
+import java.util.List;
 import java.util.Locale;
 
-@SuppressWarnings("serial")
+import javax.swing.JFileChooser;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.filechooser.FileFilter;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
+
 public final class ExportOdtFileChooser extends JFileChooser {
-    public ExportOdtFileChooser(File baseDirectory, String dialogTitle) {
+    private static final long serialVersionUID = -5208753817437732831L;
+    private SourceFileSelectionModel tableModel;
+
+    public ExportOdtFileChooser(File baseDirectory, List<String> sourceFiles, String dialogTitle) {
         super(baseDirectory);
+
+        setAccessory(createSourceFilePicker(sourceFiles));
 
         setApproveButtonText(ODTReviewPlugin.res.getString("odt.chooser.button.export"));
         setApproveButtonToolTipText(ODTReviewPlugin.res.getString("odt.chooser.button.export.tooltip"));
@@ -52,11 +66,37 @@ public final class ExportOdtFileChooser extends JFileChooser {
         });
     }
 
+    private JPanel createSourceFilePicker(List<String> sourceFiles) {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        panel.add(new JLabel(ODTReviewPlugin.res.getString("odt.chooser.source.label")), BorderLayout.NORTH);
+
+        tableModel = new SourceFileSelectionModel(sourceFiles);
+        JTable tableFileSelection = new JTable(tableModel);
+        tableFileSelection.setPreferredScrollableViewportSize(new Dimension(500, 70));
+        tableFileSelection.setFillsViewportHeight(true);
+
+        TableColumnModel columnModel = tableFileSelection.getColumnModel();
+        TableColumn colCheckbox = columnModel.getColumn(0);
+        colCheckbox.setResizable(false);
+        colCheckbox.setPreferredWidth(60);
+        colCheckbox.setMinWidth(60);
+        colCheckbox.setMaxWidth(60);
+        tableFileSelection.setRowSelectionAllowed(false);
+        JScrollPane tablePane = new JScrollPane(tableFileSelection);
+        panel.add(tablePane);
+        return panel;
+    }
+
     @Override
     public boolean accept(File f) {
         if (f.isDirectory()) {
             return true;
         }
         return f.isFile() && f.getName().toLowerCase(Locale.ENGLISH).endsWith(ODTReviewPlugin.ODT_EXTENSION);
+    }
+
+    public List<String> getSelectedSourceFiles() {
+        return tableModel.getSelectedSourceFiles();
     }
 }

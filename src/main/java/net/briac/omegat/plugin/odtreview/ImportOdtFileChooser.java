@@ -20,13 +20,15 @@
 
 package net.briac.omegat.plugin.odtreview;
 
-import javax.swing.*;
-import javax.swing.filechooser.FileFilter;
 import java.io.File;
 import java.util.Locale;
 
-@SuppressWarnings("serial")
+import javax.swing.JFileChooser;
+import javax.swing.filechooser.FileFilter;
+
 public final class ImportOdtFileChooser extends JFileChooser {
+    private static final long serialVersionUID = 8736961864003887710L;
+
     public ImportOdtFileChooser(File baseDirectory, String dialogTitle) {
         super(baseDirectory);
 
