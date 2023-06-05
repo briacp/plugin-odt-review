@@ -24,8 +24,10 @@ import static org.omegat.core.Core.getMainWindow;
 
 import java.awt.Cursor;
 import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -82,7 +84,9 @@ import org.omegat.core.events.IApplicationEventListener;
 import org.omegat.gui.editor.IEditor;
 import org.omegat.gui.main.IMainMenu;
 import org.omegat.gui.main.IMainWindow;
+import org.omegat.util.FileUtil;
 import org.omegat.util.Log;
+import org.omegat.util.StreamUtil;
 import org.omegat.util.TMXProp;
 import org.omegat.util.gui.UIThreadsUtil;
 import org.openide.awt.Mnemonics;
@@ -170,7 +174,13 @@ public class ODTReviewPlugin {
 
                 exportODTReview = new JMenuItem();
                 Mnemonics.setLocalizedText(exportODTReview, res.getString("odt.menu.export"));
-                exportODTReview.addActionListener(e -> projectExportODTReview());
+                exportODTReview.addActionListener(e -> {
+                    try {
+                        projectExportODTReview();
+                    } catch (IOException ex) {
+                        Log.logErrorRB(ex, res.getString("odt.error.export"));
+                    }
+                });
                 projectMenu.add(exportODTReview, startMenuIndex++);
 
                 importODTReview = new JMenuItem();
@@ -183,7 +193,7 @@ public class ODTReviewPlugin {
                 onProjectStatusChanged(false);
             }
 
-            private void projectExportODTReview() {
+            private void projectExportODTReview() throws IOException {
                 // Deactivate current segment
                 UIThreadsUtil.mustBeSwingThread();
                 Core.getEditor().commitAndDeactivate();
@@ -199,10 +209,18 @@ public class ODTReviewPlugin {
                 ODTReviewPlugin odtPlugin = new ODTReviewPlugin(currentProject);
                 File rootDir = props.getProjectRootDir();
 
+                // Get the source files (same as
+                // org.omegat.core.data.RealProject.loadSourceFiles())
+                File root = new File(props.getSourceRoot());
+                List<String> srcPathList = FileUtil
+                        .buildRelativeFilesList(root, Collections.emptyList(), props.getSourceRootExcludes())
+                        .stream().sorted(StreamUtil.comparatorByList(currentProject.getSourceFilesOrder()))
+                        .collect(Collectors.toList());
+
                 // The file chooser includes a separate panel to select source
                 // files to include for review
-                ExportOdtFileChooser efc = new ExportOdtFileChooser(rootDir,
-                        odtPlugin.project.getSourceFilesOrder(), res.getString("odt.chooser.export"));
+                ExportOdtFileChooser efc = new ExportOdtFileChooser(rootDir, srcPathList,
+                        res.getString("odt.chooser.export"));
                 efc.setSelectedFile(new File(defaultFilename));
                 int efcResult = efc.showSaveDialog(Core.getMainWindow().getApplicationFrame());
                 if (efcResult != JFileChooser.APPROVE_OPTION) {
