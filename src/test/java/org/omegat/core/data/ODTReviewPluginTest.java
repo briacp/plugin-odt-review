@@ -47,17 +47,19 @@ public class ODTReviewPluginTest {
 
     private static final Fairy FAIRY = Fairy.create(Locale.ENGLISH);
     private static final Fairy FAIRY_TARGET = Fairy.create(Locale.FRENCH);
+    
+    private static List<String> sourceFiles = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
         IProject project = fakeProject();
-        new ODTReviewPlugin(project).exportODT(new File("review.odt"));
+        new ODTReviewPlugin(project).exportODT(new File("review.odt"), sourceFiles);
         // new ODTReviewPlugin(project).importODT(new File("review.odt"));
     }
 
     @Test
     public void testExport() throws Exception {
         File outputFile = new File("test_review.odt");
-        new ODTReviewPlugin(fakeProject()).exportODT(outputFile);
+        new ODTReviewPlugin(fakeProject()).exportODT(outputFile, sourceFiles);
         assertTrue(outputFile.exists());
     }
 
@@ -72,6 +74,8 @@ public class ODTReviewPluginTest {
         List<FileInfo> projectFiles = new ArrayList<>();
         List<SourceTextEntry> allEntriesList = new ArrayList<>();
         Map<SourceTextEntry, TMXEntry> allEntries = new HashMap<>();
+        
+        sourceFiles.clear();
 
         ProjectProperties projectProperties = new ProjectProperties(
                 new File(FAIRY.textProducer().latinWord(2)));
@@ -109,6 +113,7 @@ public class ODTReviewPluginTest {
                 fileInfo.entries.add(entry);
             }
             projectFiles.add(fileInfo);
+            sourceFiles.add(fileInfo.filePath);
         }
 
         return new IProject() {
