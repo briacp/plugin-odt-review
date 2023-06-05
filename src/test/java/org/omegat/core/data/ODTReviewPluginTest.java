@@ -47,7 +47,7 @@ public class ODTReviewPluginTest {
 
     private static final Fairy FAIRY = Fairy.create(Locale.ENGLISH);
     private static final Fairy FAIRY_TARGET = Fairy.create(Locale.FRENCH);
-    
+
     private static List<String> sourceFiles = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
@@ -74,7 +74,7 @@ public class ODTReviewPluginTest {
         List<FileInfo> projectFiles = new ArrayList<>();
         List<SourceTextEntry> allEntriesList = new ArrayList<>();
         Map<SourceTextEntry, TMXEntry> allEntries = new HashMap<>();
-        
+
         sourceFiles.clear();
 
         ProjectProperties projectProperties = new ProjectProperties(
