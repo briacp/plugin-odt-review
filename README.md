@@ -12,6 +12,12 @@ When exporting a translation to be reviewed, a dialog box is displayed where you
 
 Once the review process is done, you can import the ODT file back in the project. If the reviewed translation differs from the current translation, it's replaced by the review. If there's a reviewer note, it's appended in the Notes panel.
 
+## Reviewing a project
+
+![image](https://github.com/briacp/plugin-odt-review/assets/4170697/e3f6a9b8-ea93-4359-872b-ca4927f37c5d)
+
+The review file is comprised of several tables, one for each source file. Each table has three columns: the source text (protected and not editable), the translated text (editable) and the review notes.
+
 ## Sponsor
 
 Thanks a lot to [Cal State University Long Beach](https://www.csulb.edu/) for sponsoring the development of this plugin.
