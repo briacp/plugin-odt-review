@@ -6,7 +6,7 @@ This plugin introduce an option to import and export `.ODT` review files.
 
 When exporting a translation to be reviewed, a dialog box is displayed where you can choose where to save the review file and which file you want to include in the review. The default name of the review file is `[project_name]_[source]-[target]_review.odt`.
 
-![image](https://github.com/briacp/plugin-odt-review/assets/4170697/9d93af3a-eede-4e7b-9620-65563b63c37e)
+![image](https://github.com/briacp/plugin-odt-review/assets/4170697/d127bdc2-1fc8-46a1-bde4-155cad0e5150)
 
 ## Importing a review file
 
@@ -14,7 +14,7 @@ Once the review process is done, you can import the ODT file back in the project
 
 ## Reviewing a project
 
-![image](https://github.com/briacp/plugin-odt-review/assets/4170697/e3f6a9b8-ea93-4359-872b-ca4927f37c5d)
+![image](https://github.com/briacp/plugin-odt-review/assets/4170697/ce004dee-7ca3-43d6-96a0-fe541b37116e)
 
 The review file is comprised of several tables, one for each source file. Each table has three columns: the source text (protected and not editable), the translated text (editable) and the review notes.
 
