@@ -20,7 +20,7 @@ The review file is comprised of several tables, one for each source file. Each t
 
 ## Sponsor
 
-Thanks a lot to [Cal State University Long Beach](https://www.csulb.edu/) for sponsoring the development of this plugin.
+Thanks a lot to the [Translation Studies Program](https://www.csulb.edu/clorinda-donato-center/programs) and the [Donato Center](https://www.csulb.edu/clorinda-donato-center) at [California State University, Long Beach](https://www.csulb.edu/) (CSULB) for sponsoring the development of this plugin.
 
 ![CSULB](https://www.csulb.edu/themes/custom/csulb/images/lb.svg)
 
